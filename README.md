@@ -98,6 +98,10 @@ docker run -p 8080:8080 -v medvault:/data \
   -e MASTER_KEY=$(openssl rand -base64 32) -e SESSION_SECRET=$(openssl rand -base64 32) -e DEMO_SEED=off medvault
 ```
 
+## Live demo on Vercel
+
+The core (encryption, reversible embedding, PNG codec, audit chain) uses audited pure-JavaScript libraries, so it runs unchanged in Node and in the browser. `npm run build:demo` builds the web app with the real `Vault` compiled in over an in-memory database saved to `localStorage`: each visitor gets a private sandbox seeded with the fictional demo accounts, and uploaded scans never leave their machine. Import the repo on [Vercel](https://vercel.com/new) and it picks up `vercel.json`; no environment variables are needed. A real deployment with shared storage and server-held keys uses the Node server (`npm start` or Docker).
+
 ## Tests
 
 ```bash
@@ -120,7 +124,7 @@ What the tests check:
 
 ## Tech stack
 
-TypeScript · Node.js 22 · Fastify · node:sqlite · AES-256-GCM (node:crypto) · jose · Zod · pngjs · React 19 · Vite · Tailwind CSS 4 · Vitest · Docker · GitHub Actions
+TypeScript · Node.js 22 · Fastify · node:sqlite · AES-256-GCM (@noble/ciphers) · jose · Zod · fast-png · fflate · React 19 · Vite · Tailwind CSS 4 · Vitest · Docker · GitHub Actions
 
 ## License
 

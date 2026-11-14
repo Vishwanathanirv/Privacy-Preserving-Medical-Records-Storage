@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { date, type RecordMeta } from "./lib";
+import { date, useRecordImage, type RecordMeta } from "./lib";
 
 export function Panel({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -56,7 +56,7 @@ export function RecordList({ records, empty }: { records: RecordMeta[]; empty: s
       {records.map((r) => (
         <li key={r.id}>
           <Link to={`/records/${r.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-panel-2">
-            <img src={`/api/records/${r.id}/image/stego`} alt="" className="h-14 w-14 flex-none rounded-lg bg-black object-cover" loading="lazy" />
+            <Thumb id={r.id} />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{r.title}</div>
               <div className="mt-0.5 text-sm text-muted">
@@ -69,4 +69,9 @@ export function RecordList({ records, empty }: { records: RecordMeta[]; empty: s
       ))}
     </ul>
   );
+}
+
+function Thumb({ id }: { id: string }) {
+  const src = useRecordImage(id, "stego");
+  return src ? <img src={src} alt="" className="h-14 w-14 flex-none rounded-lg bg-black object-cover" loading="lazy" /> : <span className="h-14 w-14 flex-none rounded-lg bg-black" />;
 }

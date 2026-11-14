@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router";
-import { api, date, short, useApi, useAuth, type Clinical, type RecordMeta } from "../lib";
+import { api, date, downloadRecordImage, short, useApi, useAuth, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
 import { Check, Notice, PageHeader, Panel } from "../ui";
 
 type Opened = { meta: RecordMeta; record: Clinical; verification: { fileIntact: boolean; restoredExact: boolean; layers: number } };
@@ -54,12 +54,12 @@ export function RecordView() {
             ))}
           </div>
           <div className="p-4">
-            <img key={view} src={`/api/records/${meta.id}/image/${view}`} alt={VIEWS.find((x) => x.v === view)!.t} className="aspect-square w-full rounded-xl bg-black object-contain" style={{ imageRendering: view === "diff" ? "pixelated" : undefined }} />
+            <RecordImage key={view} id={meta.id} variant={view} />
             <p className="mt-3 text-sm text-muted">{VIEWS.find((x) => x.v === view)!.d}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <a className="btn" href={`/api/records/${meta.id}/image/stego?download=1`}>
+              <button className="btn" onClick={() => void downloadRecordImage(meta.id)}>
                 Download stored image
-              </a>
+              </button>
               <label className="btn cursor-pointer">
                 Verify an image…
                 <input type="file" accept="image/png" className="hidden" onChange={(e) => e.target.files?.[0] && runVerify(e.target.files[0])} />
@@ -166,4 +166,11 @@ export function RecordView() {
       </div>
     </>
   );
+}
+
+function RecordImage({ id, variant }: { id: string; variant: ImageVariant }) {
+  const src = useRecordImage(id, variant);
+  const alt = VIEWS.find((x) => x.v === variant)!.t;
+  if (!src) return <div className="aspect-square w-full animate-pulse rounded-xl bg-black" aria-label={`Loading ${alt.toLowerCase()}`} />;
+  return <img src={src} alt={alt} className="aspect-square w-full rounded-xl bg-black object-contain" style={{ imageRendering: variant === "diff" ? "pixelated" : undefined }} />;
 }

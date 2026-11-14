@@ -1,4 +1,4 @@
-import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { deflateSync, inflateSync } from "fflate";
 
 /**
  * Reversible data hiding (RDH) for 8-bit grayscale images.
@@ -76,12 +76,12 @@ function preprocess(g: Gray, moved: Set<number>): Uint8Array {
   }
   const packed = new Uint8Array(Math.ceil(bits.length / 8));
   bits.forEach((b, k) => (packed[k >> 3] |= b << (7 - (k & 7))));
-  return new Uint8Array(deflateRawSync(packed, { level: 9 }));
+  return deflateSync(packed, { level: 9 });
 }
 
 function undoPreprocess(g: Gray, map: Uint8Array): void {
   const { width: w, height: h, data: d } = g;
-  const bits = new Uint8Array(inflateRawSync(map));
+  const bits = inflateSync(map);
   let k = 0;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {

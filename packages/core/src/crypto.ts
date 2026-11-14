@@ -1,5 +1,8 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { gcm } from "@noble/ciphers/aes.js";
+import { randomBytes } from "@noble/ciphers/utils.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { deflateSync, inflateSync } from "fflate";
 
 /**
  * Envelope encryption. Every record gets its own random 256-bit data key (DEK).
@@ -12,23 +15,30 @@ const VERSION = 1;
 
 export class CryptoError extends Error {}
 
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+// Layout: version (1) | IV (12) | GCM tag (16) | ciphertext. Runs the same in Node and the browser.
 function seal(key: Uint8Array, plain: Uint8Array, aad: string): Uint8Array {
   const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", key, iv);
-  c.setAAD(Buffer.from(aad));
-  const body = Buffer.concat([c.update(plain), c.final()]);
-  return new Uint8Array(Buffer.concat([Buffer.from([VERSION]), iv, c.getAuthTag(), body]));
+  const out = gcm(key, iv, enc.encode(aad)).encrypt(plain);
+  const body = out.subarray(0, out.length - 16);
+  const sealed = new Uint8Array(29 + body.length);
+  sealed[0] = VERSION;
+  sealed.set(iv, 1);
+  sealed.set(out.subarray(out.length - 16), 13);
+  sealed.set(body, 29);
+  return sealed;
 }
 
 function open(key: Uint8Array, sealed: Uint8Array, aad: string): Uint8Array {
   if (sealed.length < 29 || sealed[0] !== VERSION) throw new CryptoError("Unsupported or corrupted ciphertext");
   const iv = sealed.subarray(1, 13);
-  const tag = sealed.subarray(13, 29);
-  const d = createDecipheriv("aes-256-gcm", key, iv);
-  d.setAAD(Buffer.from(aad));
-  d.setAuthTag(tag);
+  const joined = new Uint8Array(sealed.length - 13);
+  joined.set(sealed.subarray(29), 0);
+  joined.set(sealed.subarray(13, 29), sealed.length - 29);
   try {
-    return new Uint8Array(Buffer.concat([d.update(sealed.subarray(29)), d.final()]));
+    return gcm(key, iv, enc.encode(aad)).decrypt(joined);
   } catch {
     throw new CryptoError("Integrity check failed: the data was modified or the key is wrong");
   }
@@ -39,7 +49,7 @@ export type SealedRecord = { ciphertext: Uint8Array; wrappedKey: Uint8Array };
 export function encryptRecord(kek: Uint8Array, recordId: string, patientId: string, record: unknown): SealedRecord {
   if (kek.length !== 32) throw new CryptoError("Master key must be 32 bytes");
   const dek = randomBytes(32);
-  const plain = deflateRawSync(Buffer.from(JSON.stringify(record)), { level: 9 });
+  const plain = deflateSync(enc.encode(JSON.stringify(record)), { level: 9 });
   const ciphertext = seal(dek, plain, `record:${recordId}:${patientId}`);
   const wrappedKey = seal(kek, dek, `dek:${recordId}`);
   dek.fill(0);
@@ -49,7 +59,7 @@ export function encryptRecord(kek: Uint8Array, recordId: string, patientId: stri
 export function decryptRecord<T = unknown>(kek: Uint8Array, recordId: string, patientId: string, s: SealedRecord): T {
   const dek = open(kek, s.wrappedKey, `dek:${recordId}`);
   try {
-    return JSON.parse(inflateRawSync(open(dek, s.ciphertext, `record:${recordId}:${patientId}`)).toString("utf8")) as T;
+    return JSON.parse(dec.decode(inflateSync(open(dek, s.ciphertext, `record:${recordId}:${patientId}`)))) as T;
   } finally {
     dek.fill(0);
   }
@@ -72,7 +82,7 @@ export type AuditEntry = { seq: number; ts: number; actor: string; action: strin
 export const GENESIS = "0".repeat(64);
 
 export function auditHash(e: Omit<AuditEntry, "hash">): string {
-  return createHash("sha256").update([e.seq, e.ts, e.actor, e.action, e.target, e.detail, e.prevHash].join("\u001f")).digest("hex");
+  return bytesToHex(sha256(enc.encode([e.seq, e.ts, e.actor, e.action, e.target, e.detail, e.prevHash].join("\u001f"))));
 }
 
 /** Checks that every entry links to the previous one and that no field was edited. */

@@ -1,15 +1,13 @@
-import { randomUUID } from "node:crypto";
-import type { Db } from "./db";
-import { hashPassword } from "./security";
+import type { SeedStore } from "./types";
 import type { Vault } from "./vault";
 
 /** Demo password shown on the sign-in page. Set DEMO_SEED=off in production. */
 export const DEMO_PASSWORD = "medvault-demo";
 
 /** Fictional people and records only; no real patient data is ever used. */
-export async function seedDemo(db: Db, vault: Vault) {
-  const pw = await hashPassword(DEMO_PASSWORD);
-  const mk = (name: string, email: string, role: "admin" | "doctor" | "patient") => db.createUser({ id: randomUUID(), name, email, role }, pw);
+export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
+  const pw = passwordHash;
+  const mk = (name: string, email: string, role: "admin" | "doctor" | "patient") => db.createUser({ id: globalThis.crypto.randomUUID(), name, email, role }, pw);
   const admin = mk("Asha Admin", "admin@medvault.dev", "admin");
   const meera = mk("Dr. Meera Iyer", "meera@medvault.dev", "doctor");
   const arjun = mk("Dr. Arjun Rao", "arjun@medvault.dev", "doctor");

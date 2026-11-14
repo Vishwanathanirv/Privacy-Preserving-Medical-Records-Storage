@@ -12,7 +12,8 @@ import { z } from "zod";
 import { verifyChain } from "@medvault/core";
 import { Db, type Role } from "./db";
 import { COOKIE, hashPassword, loadKey, readSession, signSession, verifyPassword, type Session } from "./security";
-import { seedDemo } from "./seed";
+import { RecordInput } from "./schema";
+import { DEMO_PASSWORD, seedDemo } from "./seed";
 import { Vault, VaultError } from "./vault";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,16 +32,6 @@ class HttpError extends Error {
   }
 }
 
-const RecordInput = z.object({
-  title: z.string().trim().min(2).max(120),
-  diagnosis: z.string().trim().min(2).max(300),
-  notes: z.string().trim().max(4000).default(""),
-  medications: z.array(z.string().trim().min(1).max(120)).max(20).default([]),
-  vitals: z
-    .object({ bp: z.string().max(12).optional(), pulse: z.number().int().min(20).max(250).optional(), temperature: z.number().min(30).max(45).optional(), spo2: z.number().int().min(50).max(100).optional() })
-    .default({}),
-});
-
 export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyInstance; db: Db }> {
   const db = new Db(opts.dbFile);
   const keyDir = opts.keyDir ?? process.env.KEY_DIR ?? "./data";
@@ -48,7 +39,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   const kek = loadKey("MASTER_KEY", memory ? ":memory:" : join(keyDir, "master.key"));
   const sessionKey = loadKey("SESSION_SECRET", memory ? ":memory:" : join(keyDir, "session.key"));
   const vault = new Vault(db, kek);
-  if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) await seedDemo(db, vault);
+  if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD));
 
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: true, bodyLimit: 256 * 1024 });
   await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "blob:"], connectSrc: ["'self'"] } } });

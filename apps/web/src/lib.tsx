@@ -13,7 +13,16 @@ export class ApiError extends Error {
   }
 }
 
+/** True in the hosted demo build, where the server runs inside the browser instead of on a host. */
+export const DEMO = import.meta.env.VITE_DEMO === "1";
+
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  if (DEMO) {
+    const { demo } = await import("./demo/server");
+    const r = await demo.handle(init.method ?? "GET", path, init.json !== undefined ? init.json : init.body);
+    if (r.status >= 400) throw new ApiError(r.status, (r.data as { error?: string }).error ?? `Request failed (${r.status})`);
+    return r.data as T;
+  }
   const headers: Record<string, string> = { "x-medvault": "1", ...(init.headers as Record<string, string>) };
   if (init.json !== undefined) headers["content-type"] = "application/json";
   const res = await fetch(path, { ...init, headers, body: init.json !== undefined ? JSON.stringify(init.json) : init.body, credentials: "same-origin" });
@@ -84,3 +93,47 @@ export const ACTIONS: Record<string, string> = {
   "user.create": "Created a user",
   "system.seed": "Demo data created",
 };
+
+export type ImageVariant = "stego" | "original" | "diff";
+
+/** URL for a record image: the API path on a server, or a local blob in the browser demo. */
+export function useRecordImage(recordId: string, variant: ImageVariant) {
+  const path = `/api/records/${recordId}/image/${variant}`;
+  const [url, setUrl] = useState<string | null>(DEMO ? null : path);
+  useEffect(() => {
+    if (!DEMO) {
+      setUrl(path);
+      return;
+    }
+    let made: string | null = null;
+    let live = true;
+    void import("./demo/server")
+      .then(({ demo }) => demo.image(recordId, variant))
+      .then((png) => {
+        if (!live) return;
+        made = URL.createObjectURL(new Blob([png as Uint8Array<ArrayBuffer>], { type: "image/png" }));
+        setUrl(made);
+      })
+      .catch(() => live && setUrl(null));
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [recordId, variant, path]);
+  return url;
+}
+
+/** Saves the stored stego image to disk. */
+export async function downloadRecordImage(recordId: string) {
+  if (!DEMO) {
+    location.assign(`/api/records/${recordId}/image/stego?download=1`);
+    return;
+  }
+  const { demo } = await import("./demo/server");
+  const url = URL.createObjectURL(new Blob([(await demo.image(recordId, "stego")) as Uint8Array<ArrayBuffer>], { type: "image/png" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `medvault-${recordId.slice(0, 8)}-stego.png`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

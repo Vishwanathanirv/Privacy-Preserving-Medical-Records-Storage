@@ -4,7 +4,7 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router";
 import "@fontsource-variable/inter";
 import "@fontsource/jetbrains-mono/400.css";
 import "./index.css";
-import { AuthProvider, useAuth, type Role } from "./lib";
+import { AuthProvider, DEMO, useAuth, type Role } from "./lib";
 import { Login } from "./pages/Login";
 import { PatientDetail, Patients } from "./pages/Doctor";
 import { RecordView } from "./pages/Record";
@@ -90,6 +90,15 @@ function Shell() {
           Vishwanathan R
         </a>{" "}
         · Demo with fictional people and synthetic scans. Not for real patient data without a security review.
+        {DEMO && (
+          <>
+            {" "}
+            This sandbox runs entirely in your browser and is saved only on this device.{" "}
+            <button className="text-muted underline underline-offset-4 hover:text-ink" onClick={() => void import("./demo/server").then(({ demo }) => demo.reset())}>
+              Reset demo data
+            </button>
+          </>
+        )}
       </footer>
     </div>
   );

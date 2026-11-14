@@ -3,21 +3,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { GENESIS, auditHash, type AuditEntry } from "@medvault/core";
 
-export type Role = "admin" | "doctor" | "patient";
-export type User = { id: string; email: string; name: string; role: Role; createdAt: number };
-export type RecordMeta = {
-  id: string;
-  patientId: string;
-  authorId: string;
-  authorName: string;
-  title: string;
-  createdAt: number;
-  width: number;
-  height: number;
-  stegoSha256: string;
-  originalSha256: string;
-  stats: { layers: number; payloadBytes: number; bitsPerPixel: number; psnr: number; ssim: number; maxPixelChange: number; embedMs: number };
-};
+export type { RecordMeta, Role, User } from "./types";
+import type { RecordMeta, Role, User } from "./types";
 
 type Row = Record<string, unknown>;
 

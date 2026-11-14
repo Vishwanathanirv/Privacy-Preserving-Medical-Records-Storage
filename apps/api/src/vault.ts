@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   RdhError,
   CryptoError,
@@ -16,7 +15,7 @@ import {
   ssim,
   type Gray,
 } from "@medvault/core";
-import type { Db, RecordMeta } from "./db";
+import type { RecordMeta, RecordStore } from "./types";
 
 export type ClinicalRecord = {
   title: string;
@@ -50,7 +49,7 @@ export class VaultError extends Error {
 }
 
 export class Vault {
-  constructor(private db: Db, private kek: Uint8Array) {}
+  constructor(private db: RecordStore, private kek: Uint8Array) {}
 
   /** Encrypts the record, hides it inside the scan and stores only the stego image and wrapped key. */
   create(patientId: string, author: { id: string; name: string }, rec: Omit<ClinicalRecord, "author" | "createdAt">, scanPng?: Uint8Array): RecordMeta {
@@ -61,7 +60,7 @@ export class Vault {
       cover = image;
     } else cover = phantom(512, Math.floor(Math.random() * 1e6));
 
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     const full: ClinicalRecord = { ...rec, author: author.name, createdAt: new Date().toISOString() };
     const sealed = encryptRecord(this.kek, id, patientId, full);
     const t0 = performance.now();

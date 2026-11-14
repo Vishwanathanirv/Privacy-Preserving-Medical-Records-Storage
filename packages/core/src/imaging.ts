@@ -1,22 +1,37 @@
-import { createHash } from "node:crypto";
-import { PNG } from "pngjs";
+import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { convertIndexedToRgb, decode, encode, type DecodedPng } from "fast-png";
 import type { Gray } from "./rdh";
 
 /** Decodes a PNG to 8-bit grayscale. Colour images are converted with Rec. 601 luma. */
 export function decodePng(buf: Uint8Array): { image: Gray; wasGray: boolean } {
-  let png: PNG;
+  let png: DecodedPng;
   try {
-    png = PNG.sync.read(Buffer.from(buf));
+    png = decode(buf);
   } catch {
     throw new Error("That file is not a valid PNG image.");
   }
-  const { width, height, data } = png;
+  const { width, height } = png;
+  let channels = png.channels;
+  let data: ArrayLike<number> = png.data;
+  let max = (1 << png.depth) - 1;
+  if (png.palette) {
+    data = convertIndexedToRgb(png);
+    channels = png.transparency ? 4 : 3;
+    max = 255;
+  }
+  const scale = 255 / max;
   const out = new Uint8Array(width * height);
   let wasGray = true;
   for (let i = 0; i < width * height; i++) {
-    const r = data[i * 4];
-    const g = data[i * 4 + 1];
-    const b = data[i * 4 + 2];
+    const k = i * channels;
+    if (channels < 3) {
+      out[i] = Math.round(data[k] * scale);
+      continue;
+    }
+    const r = Math.round(data[k] * scale);
+    const g = Math.round(data[k + 1] * scale);
+    const b = Math.round(data[k + 2] * scale);
     if (r !== g || g !== b) wasGray = false;
     out[i] = r === g && g === b ? r : Math.round(0.299 * r + 0.587 * g + 0.114 * b);
   }
@@ -25,12 +40,10 @@ export function decodePng(buf: Uint8Array): { image: Gray; wasGray: boolean } {
 
 /** Encodes grayscale as a lossless 8-bit grayscale PNG. */
 export function encodePng(g: Gray): Uint8Array {
-  const png = new PNG({ width: g.width, height: g.height, colorType: 0, inputColorType: 0, bitDepth: 8, inputHasAlpha: false });
-  png.data = Buffer.from(g.data);
-  return new Uint8Array(PNG.sync.write(png, { colorType: 0, inputColorType: 0, bitDepth: 8, inputHasAlpha: false }));
+  return encode({ width: g.width, height: g.height, data: g.data, depth: 8, channels: 1 });
 }
 
-export const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+export const sha256 = (b: Uint8Array) => bytesToHex(sha256Bytes(b));
 export const pixelHash = (g: Gray) => sha256(new Uint8Array([...new Uint8Array(new Uint32Array([g.width, g.height]).buffer), ...g.data]));
 
 /** Visualises where pixels changed: unchanged black, changed white. */
