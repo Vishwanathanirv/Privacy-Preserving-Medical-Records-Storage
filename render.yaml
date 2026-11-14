@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: medvault
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: MASTER_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false

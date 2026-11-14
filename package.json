@@ -1,0 +1,36 @@
+{
+  "name": "medvault",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Privacy-preserving medical records: AES-256-GCM encrypted records hidden inside scans with reversible watermarking, patient-controlled access and a tamper-evident audit log.",
+  "author": "Vishwanathan R <mail@vishwanathan.dev> (https://vishwanathan.dev)",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev -w apps/api\" \"npm:dev -w apps/web\"",
+    "build": "npm run build -w apps/web && npm run build -w apps/api",
+    "start": "node --disable-warning=ExperimentalWarning apps/api/dist/server.js",
+    "benchmark": "tsx scripts/benchmark.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core && tsc -p apps/api && tsc -p apps/web",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "concurrently": "^9.2.5",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.39.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^3.2.7"
+  }
+}
