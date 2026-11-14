@@ -114,9 +114,11 @@ function NewRecord({ patientId, onCancel, onCreated }: { patientId: string; onCa
           ))}
         </div>
         <label className="md:col-span-2">
-          <span className="label">Scan (8-bit PNG)</span>
-          <input type="file" accept="image/png" className="field mt-1.5 py-1.5" onChange={(e) => setScan(e.target.files?.[0] ?? null)} />
-          <span className="mt-1 block text-xs text-faint">Leave empty to use a synthetic CT phantom. The record is encrypted and hidden inside this image; nothing else is stored.</span>
+          <span className="label">Scan (DICOM or PNG)</span>
+          <input type="file" accept="image/png,.dcm,application/dicom" className="field mt-1.5 py-1.5" onChange={(e) => setScan(e.target.files?.[0] ?? null)} />
+          <span className="mt-1 block text-xs text-faint">
+            Uncompressed DICOM straight from the scanner (8 to 16-bit), or a PNG. Leave empty to use a synthetic CT phantom. The record is encrypted and hidden inside the pixels; for DICOM the patient&apos;s identifying details are moved out of the header and into the encrypted record.
+          </span>
         </label>
         {error && (
           <div className="md:col-span-2">

@@ -14,6 +14,7 @@ import { Db, type Role } from "./db";
 import { COOKIE, hashPassword, loadKey, readSession, signSession, verifyPassword, type Session } from "./security";
 import { RecordInput } from "./schema";
 import { DEMO_PASSWORD, seedDemo } from "./seed";
+import { TransparencyLog } from "./translog";
 import { Vault, VaultError } from "./vault";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,6 +40,8 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   const kek = loadKey("MASTER_KEY", memory ? ":memory:" : join(keyDir, "master.key"));
   const sessionKey = loadKey("SESSION_SECRET", memory ? ":memory:" : join(keyDir, "session.key"));
   const vault = new Vault(db, kek);
+  const logKey = loadKey("LOG_SIGNING_KEY", memory ? ":memory:" : join(keyDir, "log.key"));
+  const tlog = new TransparencyLog(() => db.auditAll(), logKey);
   if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD));
 
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: true, bodyLimit: 256 * 1024 });
@@ -194,6 +197,16 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
     return Buffer.from(png);
   });
 
+  app.get("/api/records/:id/file/:kind", async (req, reply: FastifyReply) => {
+    const s = auth(req, "doctor", "patient");
+    const { id, kind } = z.object({ id: z.string(), kind: z.enum(["stored", "original"]) }).parse(req.params);
+    requireRecordAccess(s, id);
+    const f = vault.file(id, kind);
+    if (kind === "original") db.audit(s.sub, "file.original", `record:${id}`);
+    reply.header("content-type", f.type).header("cache-control", "private, no-store").header("content-disposition", `attachment; filename="${f.filename}"`);
+    return Buffer.from(f.bytes);
+  });
+
   app.post("/api/records/:id/tamper-test", async (req) => {
     const s = auth(req, "doctor", "patient");
     const { id } = req.params as { id: string };
@@ -228,7 +241,46 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   app.get("/api/audit/verify", async (req) => {
     auth(req, "admin");
     const entries = db.auditAll();
-    return { ...verifyChain(entries), entries: entries.length, head: entries.at(-1)?.hash ?? null };
+    return { ...verifyChain(entries), entries: entries.length, head: entries.at(-1)?.hash ?? null, transparency: tlog.audit() };
+  });
+
+  // ---------- transparency log (RFC 9162-style Merkle tree with signed heads) ----------
+  /** Which audit entries a user may see, and so request proofs for. */
+  const visibleTo = (s: Session) => {
+    if (s.role === "admin") return () => true;
+    if (s.role === "patient") {
+      const keys = [`patient:${s.sub}`, ...db.listRecords(s.sub).map((r) => r.id)];
+      return (e: { target: string }) => keys.some((k) => e.target.includes(k));
+    }
+    return (e: { actor: string }) => e.actor === s.sub;
+  };
+
+  app.get("/api/log/head", async (req) => {
+    auth(req);
+    return { head: tlog.head(), publicKey: tlog.publicKey, keyId: tlog.keyId };
+  });
+
+  app.get("/api/log/inclusion/:seq", async (req) => {
+    const s = auth(req);
+    const { seq } = z.object({ seq: z.coerce.number().int().min(1) }).parse(req.params);
+    const { size } = z.object({ size: z.coerce.number().int().min(1) }).parse(req.query);
+    const entry = db.auditAll()[seq - 1];
+    if (!entry || !visibleTo(s)(entry)) throw new HttpError(404, "Entry not found");
+    try {
+      return { entry, ...tlog.inclusion(seq, size) };
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+  });
+
+  app.get("/api/log/consistency", async (req) => {
+    auth(req);
+    const { from, to } = z.object({ from: z.coerce.number().int().min(1), to: z.coerce.number().int().min(1) }).parse(req.query);
+    try {
+      return tlog.consistency(from, to);
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
   });
 
   app.get("/api/admin/users", async (req) => {

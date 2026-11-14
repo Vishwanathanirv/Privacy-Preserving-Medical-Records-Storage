@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
-import { decodePng, encodePng, phantom, pixelHash, embed } from "@medvault/core";
+import { auditLeaf, ctPhantom, decodePng, encodePng, embed, fromHex, parseDicom, phantom, pixelHash, verifyConsistency, verifyInclusion, verifyTreeHead, writeDicom, type AuditEntry } from "@medvault/core";
 import { buildApp } from "../src/app";
 import type { Db } from "../src/db";
 import { DEMO_PASSWORD } from "../src/seed";
@@ -120,8 +120,8 @@ describe("records", () => {
     const meera = await login("meera@medvault.dev");
     const pid = db.findByEmail("karthik@medvault.dev")!.id;
     const id = db.listRecords(pid)[0].id;
-    const stego = (await app.inject({ url: `/api/records/${id}/image/stego`, headers: as(meera.cookie) })).rawPayload;
-    const m1 = multipart({}, { name: "s.png", data: stego });
+    const stego = (await app.inject({ url: `/api/records/${id}/file/stored`, headers: as(meera.cookie) })).rawPayload;
+    const m1 = multipart({}, { name: "s.dcm", data: stego });
     const ok = await app.inject({ method: "POST", url: "/api/verify", payload: m1.payload, headers: { ...m1.headers, ...as(meera.cookie) } });
     expect(ok.json()).toMatchObject({ recordId: id, verification: { fileIntact: true, restoredExact: true } });
     const m2 = multipart({}, { name: "p.png", data: encodePng(phantom(128)) });
@@ -131,12 +131,89 @@ describe("records", () => {
   });
 });
 
+describe("DICOM scans", () => {
+  it("stores a de-identified file and rebuilds the original byte for byte", async () => {
+    const meera = await login("meera@medvault.dev");
+    const pid = db.findByEmail("anitha@medvault.dev")!.id;
+    const original = writeDicom({ pixels: ctPhantom(256, 9), width: 256, height: 256, patientName: "Kumar^Anitha", patientId: "AK-1", birthDate: "19880212" });
+    const m = multipart({ record: JSON.stringify({ title: "CT head (DICOM)", diagnosis: "Normal study" }) }, { name: "ct.dcm", data: original });
+    const created = await app.inject({ method: "POST", url: `/api/patients/${pid}/records`, payload: m.payload, headers: { ...m.headers, ...as(meera.cookie) } });
+    expect(created.statusCode).toBe(200);
+    const rec = created.json().record;
+    expect(rec.scan).toMatchObject({ format: "dicom", bitDepth: 12, modality: "CT" });
+    expect(rec.scan.removedFields).toEqual(expect.arrayContaining(["Patient's Name", "Patient ID", "Patient's Birth Date"]));
+
+    const stored = new Uint8Array((await app.inject({ url: `/api/records/${rec.id}/file/stored`, headers: as(meera.cookie) })).rawPayload);
+    const text = new TextDecoder("latin1").decode(stored);
+    expect(text).not.toContain("Kumar^Anitha");
+    expect(text).not.toContain("AK-1");
+    expect(parseDicom(stored).rows).toBe(256);
+
+    const opened = (await app.inject({ url: `/api/records/${rec.id}`, headers: as(meera.cookie) })).json();
+    expect(opened.verification).toMatchObject({ fileIntact: true, restoredExact: true });
+    expect(opened.record.source).toBeUndefined();
+
+    const back = new Uint8Array((await app.inject({ url: `/api/records/${rec.id}/file/original`, headers: as(meera.cookie) })).rawPayload);
+    expect(back).toEqual(original);
+    const audit = db.auditRecent(5).map((e) => e.action);
+    expect(audit).toContain("file.original");
+
+    const png = (await app.inject({ url: `/api/records/${rec.id}/image/original`, headers: as(meera.cookie) })).rawPayload;
+    expect(decodePng(new Uint8Array(png)).image.width).toBe(256);
+  });
+
+  it("rejects compressed or broken DICOM with a clear message", async () => {
+    const meera = await login("meera@medvault.dev");
+    const pid = db.findByEmail("anitha@medvault.dev")!.id;
+    const bad = writeDicom({ pixels: ctPhantom(64, 1), width: 64, height: 64 }).slice(0, 400);
+    const m = multipart({ record: JSON.stringify({ title: "Broken", diagnosis: "n/a" }) }, { name: "x.dcm", data: bad });
+    const r = await app.inject({ method: "POST", url: `/api/patients/${pid}/records`, payload: m.payload, headers: { ...m.headers, ...as(meera.cookie) } });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error).toMatch(/truncated|pixel data/i);
+  });
+});
+
+describe("transparency log", () => {
+  it("signs heads, proves a patient's entries are in the log, and keeps other patients' entries private", async () => {
+    const anitha = await login("anitha@medvault.dev");
+    const { head, publicKey } = json(await app.inject({ url: "/api/log/head", headers: as(anitha.cookie) }));
+    expect(verifyTreeHead(publicKey, head)).toBe(true);
+    const mine = json(await app.inject({ url: "/api/audit", headers: as(anitha.cookie) })).entries as AuditEntry[];
+    const e = mine.find((x) => x.seq <= head.size)!;
+    const p = json(await app.inject({ url: `/api/log/inclusion/${e.seq}?size=${head.size}`, headers: as(anitha.cookie) }));
+    expect(verifyInclusion(auditLeaf(e), p.index, p.size, p.proof.map(fromHex), fromHex(head.root))).toBe(true);
+    // A tampered copy of the entry does not verify against the signed root.
+    expect(verifyInclusion(auditLeaf({ ...e, actor: "someone-else" }), p.index, p.size, p.proof.map(fromHex), fromHex(head.root))).toBe(false);
+    const karthikId = db.findByEmail("karthik@medvault.dev")!.id;
+    const other = db.auditAll().find((x) => x.target === `patient:${karthikId}`)!;
+    expect((await app.inject({ url: `/api/log/inclusion/${other.seq}?size=${head.size}`, headers: as(anitha.cookie) })).statusCode).toBe(404);
+  });
+
+  it("proves the log only grew between two heads", async () => {
+    const admin = await login("admin@medvault.dev");
+    const first = json(await app.inject({ url: "/api/log/head", headers: as(admin.cookie) })).head;
+    const anitha = await login("anitha@medvault.dev");
+    const arjun = db.findByEmail("arjun@medvault.dev")!.id;
+    await app.inject({ method: "PUT", url: `/api/consent/${arjun}`, headers: as(anitha.cookie) });
+    await app.inject({ method: "DELETE", url: `/api/consent/${arjun}`, headers: as(anitha.cookie) });
+    const second = json(await app.inject({ url: "/api/log/head", headers: as(admin.cookie) })).head;
+    expect(second.size).toBeGreaterThan(first.size);
+    const c = json(await app.inject({ url: `/api/log/consistency?from=${first.size}&to=${second.size}`, headers: as(admin.cookie) }));
+    expect(verifyConsistency(first.size, second.size, c.proof.map(fromHex), fromHex(first.root), fromHex(second.root))).toBe(true);
+  });
+});
+
 describe("audit chain", () => {
   it("verifies, and an edited row is detected", async () => {
     const admin = await login("admin@medvault.dev");
-    expect(json(await app.inject({ url: "/api/audit/verify", headers: as(admin.cookie) })).ok).toBe(true);
+    const before = json(await app.inject({ url: "/api/audit/verify", headers: as(admin.cookie) }));
+    expect(before.ok).toBe(true);
+    expect(before.transparency.firstBrokenHead).toBeNull();
     db.db.prepare("UPDATE audit SET actor = 'mallory' WHERE seq = 3").run();
     const v = json(await app.inject({ url: "/api/audit/verify", headers: as(admin.cookie) }));
     expect(v).toMatchObject({ ok: false, brokenAt: 3 });
+    // Every signed head covering entry 3 no longer matches the log rebuilt from storage.
+    expect(v.transparency.firstBrokenHead).not.toBeNull();
+    expect(v.transparency.firstBrokenHead.size).toBeGreaterThanOrEqual(3);
   });
 });

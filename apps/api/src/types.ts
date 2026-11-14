@@ -13,7 +13,19 @@ export type RecordMeta = {
   height: number;
   stegoSha256: string;
   originalSha256: string;
-  stats: { layers: number; payloadBytes: number; bitsPerPixel: number; psnr: number; ssim: number; maxPixelChange: number; embedMs: number };
+  stats: { layers: number; payloadBytes: number; bitsPerPixel: number; psnr: number; ssim: number; maxPixelChange: number; embedMs: number; thresholds?: number[] };
+  /** What kind of file is stored. Absent on records made before DICOM support (8-bit PNG). */
+  scan?: ScanInfo;
+};
+
+export type ScanInfo = {
+  format: "png" | "dicom";
+  bitDepth: number;
+  modality?: string;
+  window?: { center: number; width: number };
+  rescale?: { slope: number; intercept: number };
+  /** Names (never values) of the header attributes removed before storage. */
+  removedFields?: string[];
 };
 
 export type StoredRecord = RecordMeta & { stegoPng: Uint8Array; wrappedKey: Uint8Array };

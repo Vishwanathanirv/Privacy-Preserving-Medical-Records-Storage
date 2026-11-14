@@ -2,15 +2,15 @@ import { PageHeader, Panel } from "../ui";
 
 const STEPS = [
   { n: "1", t: "Encrypt", d: "The record is compressed and sealed with AES-256-GCM using a fresh 256-bit key made only for that record. That key is then sealed with the master key and kept in the database." },
-  { n: "2", t: "Hide", d: "The ciphertext is hidden inside the scan with prediction-error expansion: each pixel is predicted from its four neighbours and the tiny prediction errors carry the bits. No pixel moves by more than 2 grey levels." },
-  { n: "3", t: "Store", d: "Only the watermarked scan and the sealed key are stored. The database holds no readable medical data, and the image alone cannot be decrypted." },
-  { n: "4", t: "Open", d: "When an approved doctor opens it, the bits are extracted, the scan is restored to its exact original pixels and the record is decrypted. Any change to the image makes this fail." },
+  { n: "2", t: "Hide", d: "The ciphertext is hidden inside the scan with prediction-error expansion: each pixel is predicted from its four neighbours and the small prediction errors carry the bits. Works on 8-bit PNG and on 12–16-bit DICOM straight from the scanner, changing pixels by a level or two." },
+  { n: "3", t: "Store", d: "Only the watermarked scan and the sealed key are stored. For DICOM, the patient's name, ID, birth date and other identifiers are removed from the file header and travel only inside the encrypted record." },
+  { n: "4", t: "Open", d: "When an approved doctor opens it, the bits are extracted, the scan (for DICOM, the whole file) is restored exactly and the record is decrypted. Every access goes into a signed Merkle log the patient can verify." },
 ];
 
 export function How() {
   return (
     <>
-      <PageHeader title="How MedVault protects records" sub="Defence in depth: encryption, reversible watermarking, patient consent and a tamper-evident log." />
+      <PageHeader title="How MedVault protects records" sub="Defence in depth: encryption, reversible watermarking, DICOM de-identification, patient consent and a signed transparency log." />
       <div className="grid gap-4 md:grid-cols-4">
         {STEPS.map((s) => (
           <div key={s.n} className="panel p-5">

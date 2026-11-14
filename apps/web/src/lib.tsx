@@ -3,7 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 export type Role = "admin" | "doctor" | "patient";
 export type User = { id: string; name: string; email: string; role: Role };
 export type Stats = { layers: number; payloadBytes: number; bitsPerPixel: number; psnr: number; ssim: number; maxPixelChange: number; embedMs: number };
-export type RecordMeta = { id: string; patientId: string; authorName: string; title: string; createdAt: number; width: number; height: number; stegoSha256: string; originalSha256: string; stats: Stats };
+export type ScanInfo = { format: "png" | "dicom"; bitDepth: number; modality?: string; window?: { center: number; width: number }; rescale?: { slope: number; intercept: number }; removedFields?: string[] };
+export type RecordMeta = { id: string; patientId: string; authorName: string; title: string; createdAt: number; width: number; height: number; stegoSha256: string; originalSha256: string; stats: Stats & { thresholds?: number[] }; scan?: ScanInfo };
 export type Clinical = { title: string; diagnosis: string; notes: string; medications: string[]; vitals?: { bp?: string; pulse?: number; temperature?: number; spo2?: number }; author: string; createdAt: string };
 export type AuditEntry = { seq: number; ts: number; actor: string; action: string; target: string; detail: string; prevHash: string; hash: string };
 
@@ -90,6 +91,7 @@ export const ACTIONS: Record<string, string> = {
   "record.verify": "Verified an image",
   "image.original": "Viewed the restored scan",
   "image.diff": "Viewed the change map",
+  "file.original": "Downloaded the original scan",
   "user.create": "Created a user",
   "system.seed": "Demo data created",
 };
@@ -123,17 +125,18 @@ export function useRecordImage(recordId: string, variant: ImageVariant) {
   return url;
 }
 
-/** Saves the stored stego image to disk. */
-export async function downloadRecordImage(recordId: string) {
+/** Saves a record's file: the stored (stego, de-identified) one, or the restored original. */
+export async function downloadRecordFile(recordId: string, kind: "stored" | "original") {
   if (!DEMO) {
-    location.assign(`/api/records/${recordId}/image/stego?download=1`);
+    location.assign(`/api/records/${recordId}/file/${kind}`);
     return;
   }
   const { demo } = await import("./demo/server");
-  const url = URL.createObjectURL(new Blob([(await demo.image(recordId, "stego")) as Uint8Array<ArrayBuffer>], { type: "image/png" }));
+  const f = await demo.file(recordId, kind);
+  const url = URL.createObjectURL(new Blob([f.bytes as Uint8Array<ArrayBuffer>], { type: f.type }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `medvault-${recordId.slice(0, 8)}-stego.png`;
+  a.download = f.filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

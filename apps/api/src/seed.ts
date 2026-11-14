@@ -1,3 +1,4 @@
+import { ctPhantom, writeDicom } from "@medvault/core";
 import type { SeedStore } from "./types";
 import type { Vault } from "./vault";
 
@@ -37,5 +38,21 @@ export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
     vitals: { bp: "126/82", pulse: 78, temperature: 37.1, spo2: 98 },
   });
   db.audit(arjun.id, "record.create", `record:${r2.id}`, `patient:${karthik.id}`);
+  // A 12-bit DICOM CT slice, as a scanner would send it. Its header names the patient; the vault
+  // strips that from the stored file and keeps it only inside the encrypted record.
+  const ct = writeDicom({ pixels: ctPhantom(384, 7), width: 384, height: 384, patientName: "Subramanian^Karthik", patientId: "KS-20260412", birthDate: "19910317", study: "CT HEAD WITHOUT CONTRAST" });
+  const r3 = vault.create(
+    karthik.id,
+    meera,
+    {
+      title: "CT head (DICOM): headache review",
+      diagnosis: "No intracranial haemorrhage, mass effect or midline shift.",
+      notes: "Uploaded straight from the scanner as 12-bit DICOM. Ventricles normal for age. Paranasal sinus findings as previously reported. No further imaging needed.",
+      medications: [],
+      vitals: { bp: "124/80", pulse: 74, temperature: 36.9, spo2: 99 },
+    },
+    ct,
+  );
+  db.audit(meera.id, "record.create", `record:${r3.id}`, `patient:${karthik.id}`);
   void admin;
 }

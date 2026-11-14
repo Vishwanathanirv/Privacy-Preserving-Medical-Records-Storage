@@ -1,6 +1,16 @@
 import {
   RdhError,
   CryptoError,
+  DicomError,
+  deidentify,
+  isDicom,
+  parseDicom,
+  readPixels,
+  reidentify,
+  removedNames,
+  toDisplay,
+  writePixels,
+  type RemovedValue,
   decodePng,
   decryptRecord,
   differenceMap,
@@ -15,7 +25,7 @@ import {
   ssim,
   type Gray,
 } from "@medvault/core";
-import type { RecordMeta, RecordStore } from "./types";
+import type { RecordMeta, RecordStore, ScanInfo, StoredRecord } from "./types";
 
 export type ClinicalRecord = {
   title: string;
@@ -25,6 +35,8 @@ export type ClinicalRecord = {
   vitals?: { bp?: string; pulse?: number; temperature?: number; spo2?: number };
   author: string;
   createdAt: string;
+  /** For DICOM scans: the identifying header values removed from the stored file. */
+  source?: { format: "dicom"; removed: RemovedValue[] };
 };
 
 /**
@@ -51,17 +63,44 @@ export class VaultError extends Error {
 export class Vault {
   constructor(private db: RecordStore, private kek: Uint8Array) {}
 
-  /** Encrypts the record, hides it inside the scan and stores only the stego image and wrapped key. */
-  create(patientId: string, author: { id: string; name: string }, rec: Omit<ClinicalRecord, "author" | "createdAt">, scanPng?: Uint8Array): RecordMeta {
-    let cover: Gray;
-    if (scanPng) {
-      const { image } = decodePng(scanPng);
-      if (image.width * image.height > 4096 * 4096) throw new VaultError(413, "Scans larger than 4096×4096 are not supported.");
-      cover = image;
-    } else cover = phantom(512, Math.floor(Math.random() * 1e6));
-
+  /**
+   * Encrypts the record, hides it inside the scan and stores only the stego file and wrapped key.
+   * Accepts a PNG or an uncompressed DICOM file; without a scan, a synthetic CT slice is used.
+   * For DICOM, identifying header values are blanked in the stored file and travel, encrypted,
+   * inside the pixels, so the stored file reveals nothing and the original can be rebuilt exactly.
+   */
+  create(patientId: string, author: { id: string; name: string }, rec: Omit<ClinicalRecord, "author" | "createdAt" | "source">, scan?: Uint8Array): RecordMeta {
     const id = globalThis.crypto.randomUUID();
     const full: ClinicalRecord = { ...rec, author: author.name, createdAt: new Date().toISOString() };
+    let cover: Gray;
+    let scanInfo: ScanInfo;
+    let toStored: (stego: Gray) => Uint8Array;
+    let originalSha256: string;
+    if (scan && isDicom(scan)) {
+      let info;
+      try {
+        info = parseDicom(scan);
+      } catch (e) {
+        throw new VaultError(422, (e as DicomError).message);
+      }
+      if (info.rows * info.columns > 4096 * 4096) throw new VaultError(413, "Scans larger than 4096×4096 are not supported.");
+      cover = readPixels(scan, info);
+      const { file: anon, removed } = deidentify(scan, info);
+      full.source = { format: "dicom", removed };
+      scanInfo = { format: "dicom", bitDepth: info.bitsStored, modality: info.modality, rescale: info.rescale, removedFields: removedNames(removed), ...(info.window ? { window: storedWindow(info) } : {}) };
+      toStored = (stego) => writePixels(anon, info, stego);
+      originalSha256 = sha256(scan);
+    } else {
+      if (scan) {
+        const { image } = decodePng(scan);
+        if (image.width * image.height > 4096 * 4096) throw new VaultError(413, "Scans larger than 4096×4096 are not supported.");
+        cover = image;
+      } else cover = phantom(512, Math.floor(Math.random() * 1e6));
+      scanInfo = { format: "png", bitDepth: cover.data instanceof Uint16Array ? 16 : 8 };
+      toStored = (stego) => encodePng(stego);
+      originalSha256 = pixelHash(cover);
+    }
+
     const sealed = encryptRecord(this.kek, id, patientId, full);
     const t0 = performance.now();
     let result;
@@ -72,7 +111,7 @@ export class Vault {
       throw e;
     }
     const embedMs = Math.round(performance.now() - t0);
-    const stegoPng = encodePng(result.image);
+    const stored = toStored(result.image);
     const meta: Omit<RecordMeta, "authorName"> = {
       id,
       patientId,
@@ -81,26 +120,36 @@ export class Vault {
       createdAt: Date.now(),
       width: cover.width,
       height: cover.height,
-      stegoSha256: sha256(stegoPng),
-      originalSha256: pixelHash(cover),
+      stegoSha256: sha256(stored),
+      originalSha256,
       stats: { ...result.stats, psnr: +psnr(cover, result.image).toFixed(2), ssim: +ssim(cover, result.image).toFixed(4), embedMs },
+      scan: scanInfo,
     };
-    this.db.insertRecord(meta, stegoPng, sealed.wrappedKey);
+    this.db.insertRecord(meta, stored, sealed.wrappedKey);
     return { ...meta, authorName: author.name };
   }
 
+  /** Pixels of a stored file, whatever its format. */
+  private pixels(r: StoredRecord, file: Uint8Array): Gray {
+    if (r.scan?.format === "dicom") {
+      if (!isDicom(file)) throw new RdhError("This file is not the DICOM scan this record was stored in");
+      return readPixels(file, parseDicom(file));
+    }
+    return decodePng(file).image;
+  }
+
   /**
-   * Opens a record from its stored stego image: verifies the file hash, extracts the payload,
-   * decrypts it and checks the restored scan matches the original's hash.
+   * Opens a record from its stored file: verifies the file hash, extracts the payload, decrypts it
+   * and checks the restored scan (for DICOM, the whole rebuilt file) matches the original's hash.
    */
   open(recordId: string, stegoOverride?: Uint8Array) {
     const r = this.db.getRecord(recordId);
     if (!r) throw new VaultError(404, "Record not found");
-    const stegoPng = stegoOverride ?? r.stegoPng;
-    const fileIntact = sha256(stegoPng) === r.stegoSha256;
+    const stored = stegoOverride ?? r.stegoPng;
+    const fileIntact = sha256(stored) === r.stegoSha256;
     let extracted;
     try {
-      extracted = extract(decodePng(stegoPng).image);
+      extracted = extract(this.pixels(r, stored));
     } catch (e) {
       throw new VaultError(409, `Tampering detected: ${(e as Error).message}`, "watermark");
     }
@@ -113,39 +162,63 @@ export class Vault {
       if (e instanceof CryptoError) throw new VaultError(409, `Tampering detected: ${e.message}`, "decrypt");
       throw e;
     }
-    const restoredExact = pixelHash(extracted.image) === r.originalSha256;
-    return { meta: r, record, original: extracted.image, verification: { fileIntact, restoredExact, layers: extracted.layers } };
+    let originalFile: Uint8Array | null = null;
+    let restoredExact: boolean;
+    if (r.scan?.format === "dicom" && record.source) {
+      originalFile = reidentify(writePixels(stored, parseDicom(stored), extracted.image), record.source.removed);
+      restoredExact = sha256(originalFile) === r.originalSha256;
+    } else restoredExact = pixelHash(extracted.image) === r.originalSha256;
+    const { source: _s, ...clinical } = record;
+    return { meta: r, record: clinical as ClinicalRecord, original: extracted.image, originalFile, verification: { fileIntact, restoredExact, layers: extracted.layers } };
   }
 
-  /** Identifies and opens an uploaded stego PNG without trusting anything but its pixels. */
-  identify(png: Uint8Array): string {
+  /** Identifies an uploaded stego file (PNG or DICOM) without trusting anything but its pixels. */
+  identify(file: Uint8Array): string {
     try {
-      return unpack(extract(decodePng(png).image).payload).recordId;
+      const g = isDicom(file) ? readPixels(file, parseDicom(file)) : decodePng(file).image;
+      return unpack(extract(g).payload).recordId;
     } catch (e) {
-      throw new VaultError(422, e instanceof RdhError ? e.message : "This image does not carry a MedVault record");
+      throw new VaultError(422, e instanceof RdhError || e instanceof DicomError ? e.message : "This file does not carry a MedVault record");
     }
   }
 
+  /** An 8-bit PNG for viewing: the stored scan, the restored scan, or a map of changed pixels. */
   image(recordId: string, variant: "stego" | "original" | "diff"): Uint8Array {
     const r = this.db.getRecord(recordId);
     if (!r) throw new VaultError(404, "Record not found");
-    if (variant === "stego") return r.stegoPng;
+    const stego = this.pixels(r, r.stegoPng);
+    const view = (g: Gray) => encodePng(toDisplay(g, r.scan?.window));
+    if (variant === "stego") return r.scan?.format === "dicom" || stego.data instanceof Uint16Array ? view(stego) : r.stegoPng;
     const { original } = this.open(recordId);
-    if (variant === "original") return encodePng(original);
-    return encodePng(differenceMap(original, decodePng(r.stegoPng).image));
+    if (variant === "original") return original.data instanceof Uint16Array || r.scan?.window ? view(original) : encodePng(original);
+    return encodePng(differenceMap(original, stego));
+  }
+
+  /** Files to download: the stored (stego, de-identified) file, or the restored original. */
+  file(recordId: string, kind: "stored" | "original"): { bytes: Uint8Array; filename: string; type: string } {
+    const r = this.db.getRecord(recordId);
+    if (!r) throw new VaultError(404, "Record not found");
+    const dicom = r.scan?.format === "dicom";
+    const ext = dicom ? "dcm" : "png";
+    const type = dicom ? "application/dicom" : "image/png";
+    if (kind === "stored") return { bytes: r.stegoPng, filename: `medvault-${recordId.slice(0, 8)}-stored.${ext}`, type };
+    const opened = this.open(recordId);
+    return { bytes: opened.originalFile ?? encodePng(opened.original), filename: `medvault-${recordId.slice(0, 8)}-original.${ext}`, type };
   }
 
   /** Demonstrates integrity protection: changes one pixel of a copy and tries to open it. */
   tamperTest(recordId: string) {
     const r = this.db.getRecord(recordId);
     if (!r) throw new VaultError(404, "Record not found");
-    const img = decodePng(r.stegoPng).image;
+    const img = this.pixels(r, r.stegoPng);
     const y = Math.floor(img.height / 2);
     const x = Math.floor(img.width / 2);
     const i = y * img.width + x;
-    img.data[i] = img.data[i] > 128 ? img.data[i] - 3 : img.data[i] + 3;
+    const mid = (img.maxValue ?? 255) / 2;
+    img.data[i] = img.data[i] > mid ? img.data[i] - 3 : img.data[i] + 3;
+    const tampered = r.scan?.format === "dicom" ? writePixels(r.stegoPng, parseDicom(r.stegoPng), img) : encodePng(img);
     try {
-      const r2 = this.open(recordId, encodePng(img));
+      const r2 = this.open(recordId, tampered);
       // The record may still decrypt if the changed pixel carried no payload bit, but the hashes catch it.
       if (!r2.verification.fileIntact || !r2.verification.restoredExact) {
         return { detected: true, changedPixel: { x, y }, stage: "hash", message: "Tampering detected: the image no longer matches its SHA-256 fingerprint" };
@@ -156,4 +229,12 @@ export class Vault {
       return { detected: true, changedPixel: { x, y }, stage: err.stage, message: err.message };
     }
   }
+}
+
+/** The DICOM display window expressed in stored pixel values (the image is kept in that domain). */
+function storedWindow(info: { window?: { center: number; width: number }; rescale: { slope: number; intercept: number }; signed: boolean; bitsStored: number }) {
+  const w = info.window!;
+  const slope = info.rescale.slope || 1;
+  const offset = info.signed ? 1 << (info.bitsStored - 1) : 0;
+  return { center: (w.center - info.rescale.intercept) / slope + offset, width: w.width / slope };
 }

@@ -2,7 +2,7 @@
 
 > Built by [Vishwanathan R](https://vishwanathan.dev) · [Portfolio](https://vishwanathan.dev) · [Resume](https://vishwanathan.dev/resume.pdf)
 
-MedVault stores each medical record **encrypted inside its own scan**. The record is sealed with AES-256-GCM, then hidden in the image's pixels with **reversible watermarking**. Only doctors the patient approves can open it. When they do, the **original scan is restored bit for bit**, and every access is written to a **tamper-evident audit log**.
+MedVault stores each medical record **encrypted inside its own scan**. The record is sealed with AES-256-GCM, then hidden in the image's pixels with **reversible watermarking**. It works on **real DICOM files from scanners (12 and 16-bit CT, MR, X-ray)** as well as PNG. Only doctors the patient approves can open a record. When they do, the **original file is restored byte for byte**, and every access is written to a **signed, Merkle-tree transparency log** that patients can verify in their own browser.
 
 ![Record view](docs/screenshots/record.png)
 
@@ -26,6 +26,16 @@ From `npm run benchmark`, using synthetic Shepp–Logan CT slices:
 - No pixel changes by more than ±2 grey levels.
 - When one pass is not enough, extra layers are stacked automatically.
 
+**DICOM** (12 and 16-bit stored values, PSNR relative to the image's own peak):
+
+| Image | Payload | PSNR | Max change | Threshold | Exact restoration of the file |
+| --- | --- | --- | --- | --- | --- |
+| 12-bit CT, 512 × 512 (synthetic) | 1.6 KB | **73.8 dB** | ±1 HU | T = 1 | ✓ byte for byte |
+| 12-bit CT, 512 × 512 (synthetic) | 8 KB | 73.2 dB | ±1 HU | T = 1 | ✓ |
+| Real 16-bit CT, 128 × 128 (pydicom's `CT_small.dcm`) | 400 B | 82.0 dB | ±6 HU | T = 6 | ✓ |
+
+Real scanner data is noisy at 16 bits, so a pixel's prediction error is rarely exactly 0 or −1 and classic expansion carries almost nothing (121 of 400 bytes fit in the real slice above). MedVault expands every error in [−T, T−1] instead and picks the smallest T that fits, per layer. T stays at 1 for 8-bit images, and existing records still decode.
+
 ## How it works
 
 ```mermaid
@@ -33,7 +43,8 @@ flowchart LR
   R[Clinical record<br/>JSON] -->|deflate| E[AES-256-GCM<br/>per-record key]
   K[Master key] -->|wraps| W[Wrapped key]
   E --> P[Ciphertext + record id]
-  S[Scan PNG] --> H[Reversible data hiding<br/>prediction-error expansion]
+  S[Scan: DICOM or PNG] --> D[De-identify DICOM header<br/>values move into the record]
+  D --> H[Reversible data hiding<br/>adaptive prediction-error expansion]
   P --> H
   H --> ST[(Stored: watermarked scan<br/>+ wrapped key + SHA-256)]
   ST -->|consenting doctor opens| X[Extract → restore exact scan → decrypt]
@@ -45,7 +56,9 @@ flowchart LR
    - That record key is then sealed with the master key (envelope encryption), and master keys can be rotated without touching any image.
 2. **Hide.**
    - Prediction-error expansion with a rhombus predictor on a checkerboard (Sachnev et al., 2009), written from scratch. Each pixel is predicted from its four neighbours, prediction errors of 0 and −1 carry one bit each, and every other error shifts by one.
-   - Only pixels that would actually overflow (0 or 255) are adjusted, and those adjustments are recorded in a compressed location map that travels inside the payload. So flat black CT backgrounds stay untouched.
+   - Only pixels that would actually overflow are adjusted, and those adjustments are recorded in a compressed location map that travels inside the payload. So flat black CT backgrounds stay untouched.
+   - Works at any bit depth up to 16. For noisy high-bit-depth scans the expansion band widens to [−T, T−1], with T chosen per layer and stored in that layer's header.
+   - **DICOM:** a from-scratch Part 10 reader (explicit and implicit VR little endian, nested sequences, signed pixels, Bits Stored below Bits Allocated). Pixels are rewritten in place, so no other byte of the file moves. Identifying attributes (a subset of the PS3.15 Basic Profile: name, ID, birth date, address, institution, physicians, accession number...) are blanked in the stored file and travel only inside the encrypted record, so a stolen stored file names nobody, and the original file is rebuilt exactly for an authorised download. Compressed transfer syntaxes and multi-frame files are rejected with a clear message.
 3. **Store.**
    - Only the watermarked scan, the wrapped key and SHA-256 fingerprints are saved.
    - The database holds **no readable medical data**, which a test checks.
@@ -59,15 +72,19 @@ flowchart LR
   - Patients grant and revoke doctors, and changes apply instantly.
   - Doctors only see consenting patients. Refused access returns 404 and is logged.
   - Admins manage accounts but **cannot read records** (separation of duties).
-- **Record viewer** with three views: the stored image, the restored scan and a map of changed pixels. It also shows security checks, image-quality metrics, a one-click **tamper test** and **image verification**: upload any PNG to see whether it carries an authentic, unmodified record.
-- **Tamper-evident audit log.** Every entry includes the SHA-256 hash of the one before it, so editing or deleting history breaks the chain at the exact entry. Patients see who accessed their records, and admins can verify the whole chain.
+- **Record viewer** with three views: the stored image, the restored scan and a map of changed pixels (DICOM shown with its own display window). It also shows security checks, image-quality metrics, a one-click **tamper test** and **file verification**: upload any PNG or DICOM file to see whether it carries an authentic, unmodified record. DICOM records can be downloaded as the stored, de-identified file or as the restored original (logged).
+- **Transparency log.** Every audit entry is hash-chained to the one before it *and* is a leaf of a Merkle tree built to RFC 9162 (the design behind Certificate Transparency). The log signs its size and root with Ed25519. In the browser, with no trust in the server:
+  - a patient proves that each access entry they are shown is in the signed log (an inclusion proof of log₂ n hashes), so the server cannot show them a different history from everyone else;
+  - an admin's browser keeps the last signed head it saw and, on the next visit, checks a consistency proof that the log only grew, so no past entry was edited or removed in between;
+  - the server re-checks every head it has signed against the log rebuilt from storage, so a row edited directly in the database is caught.
+  The tree, the proofs and their verification are written from scratch and tested against the RFC definitions for every size up to 70 leaves.
 - **Security:**
   - scrypt password hashing, signed http-only SameSite=Strict session cookies, a CSRF header check and rate limits
   - Zod validation, strict security headers (helmet) and a timing-safe login
   - production refuses to start without explicit keys
 - **No real data.** Synthetic CT phantoms and fictional demo users.
 
-| Patient-controlled access | Tamper-evident audit log |
+| Patient-controlled access | Transparency log |
 | --- | --- |
 | ![Consent](docs/screenshots/patient-consent.png) | ![Audit](docs/screenshots/admin-audit.png) |
 
@@ -95,7 +112,8 @@ In development, keys are generated in `./data`. In production, set them explicit
 ```bash
 docker build -t medvault .
 docker run -p 8080:8080 -v medvault:/data \
-  -e MASTER_KEY=$(openssl rand -base64 32) -e SESSION_SECRET=$(openssl rand -base64 32) -e DEMO_SEED=off medvault
+  -e MASTER_KEY=$(openssl rand -base64 32) -e SESSION_SECRET=$(openssl rand -base64 32) \
+  -e LOG_SIGNING_KEY=$(openssl rand -base64 32) -e DEMO_SEED=off medvault
 ```
 
 ## Live demo on Vercel
@@ -118,13 +136,13 @@ What the tests check:
 
 ## Roadmap
 
-- 16-bit DICOM support, using the same algorithm with a wider range
+- Multi-frame DICOM and replacing UIDs during de-identification
 - Per-doctor key wrapping, so a doctor's own key is needed to decrypt
-- Hardware or managed key storage for the master key (KMS or HSM)
+- Publishing signed tree heads to an outside witness, and hardware key storage (KMS or HSM)
 
 ## Tech stack
 
-TypeScript · Node.js 22 · Fastify · node:sqlite · AES-256-GCM (@noble/ciphers) · jose · Zod · fast-png · fflate · React 19 · Vite · Tailwind CSS 4 · Vitest · Docker · GitHub Actions
+TypeScript · Node.js 22 · Fastify · node:sqlite · AES-256-GCM (@noble/ciphers) · Ed25519 (@noble/curves) · jose · Zod · fast-png · fflate · React 19 · Vite · Tailwind CSS 4 · Vitest · Docker · GitHub Actions
 
 ## License
 

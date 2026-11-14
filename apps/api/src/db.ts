@@ -28,7 +28,7 @@ export class Db {
         title TEXT NOT NULL, created_at INTEGER NOT NULL,
         width INTEGER NOT NULL, height INTEGER NOT NULL,
         stego_png BLOB NOT NULL, stego_sha256 TEXT NOT NULL, original_sha256 TEXT NOT NULL,
-        wrapped_key BLOB NOT NULL, stats TEXT NOT NULL
+        wrapped_key BLOB NOT NULL, stats TEXT NOT NULL, scan TEXT
       );
       CREATE INDEX IF NOT EXISTS records_patient ON records (patient_id, created_at);
       CREATE TABLE IF NOT EXISTS grants (
@@ -41,6 +41,9 @@ export class Db {
         target TEXT NOT NULL, detail TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL
       );
     `);
+    // Databases created before DICOM support lack the scan column.
+    const cols = this.db.prepare("PRAGMA table_info(records)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "scan")) this.db.exec("ALTER TABLE records ADD COLUMN scan TEXT");
   }
 
   // ---------- users ----------
@@ -98,12 +101,13 @@ export class Db {
     stegoSha256: r.stego_sha256 as string,
     originalSha256: r.original_sha256 as string,
     stats: JSON.parse(r.stats as string),
+    ...(r.scan ? { scan: JSON.parse(r.scan as string) } : {}),
   });
 
   insertRecord(m: Omit<RecordMeta, "authorName">, stegoPng: Uint8Array, wrappedKey: Uint8Array) {
     this.db
-      .prepare("INSERT INTO records (id, patient_id, author_id, title, created_at, width, height, stego_png, stego_sha256, original_sha256, wrapped_key, stats) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(m.id, m.patientId, m.authorId, m.title, m.createdAt, m.width, m.height, stegoPng, m.stegoSha256, m.originalSha256, wrappedKey, JSON.stringify(m.stats));
+      .prepare("INSERT INTO records (id, patient_id, author_id, title, created_at, width, height, stego_png, stego_sha256, original_sha256, wrapped_key, stats, scan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(m.id, m.patientId, m.authorId, m.title, m.createdAt, m.width, m.height, stegoPng, m.stegoSha256, m.originalSha256, wrappedKey, JSON.stringify(m.stats), m.scan ? JSON.stringify(m.scan) : null);
   }
   listRecords(patientId: string): RecordMeta[] {
     return (this.db.prepare("SELECT r.*, u.name AS author_name FROM records r JOIN users u ON u.id = r.author_id WHERE patient_id = ? ORDER BY created_at DESC").all(patientId) as Row[]).map(this.meta);

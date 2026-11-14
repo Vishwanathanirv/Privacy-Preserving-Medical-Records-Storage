@@ -1,9 +1,13 @@
 import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { convertIndexedToRgb, decode, encode, type DecodedPng } from "fast-png";
-import type { Gray } from "./rdh";
+import { maxOf, type Gray } from "./rdh";
 
 /** Decodes a PNG to 8-bit grayscale. Colour images are converted with Rec. 601 luma. */
+/**
+ * Decodes a PNG to grayscale. 16-bit grayscale stays 16-bit (so reversibility holds for medical
+ * exports); colour and palette images are converted to 8-bit with Rec. 601 luma.
+ */
 export function decodePng(buf: Uint8Array): { image: Gray; wasGray: boolean } {
   let png: DecodedPng;
   try {
@@ -19,6 +23,11 @@ export function decodePng(buf: Uint8Array): { image: Gray; wasGray: boolean } {
     data = convertIndexedToRgb(png);
     channels = png.transparency ? 4 : 3;
     max = 255;
+  }
+  if (png.depth === 16 && channels <= 2 && !png.palette) {
+    const out = new Uint16Array(width * height);
+    for (let i = 0; i < out.length; i++) out[i] = data[i * channels];
+    return { image: { width, height, data: out, maxValue: 65535 }, wasGray: true };
   }
   const scale = 255 / max;
   const out = new Uint8Array(width * height);
@@ -38,13 +47,47 @@ export function decodePng(buf: Uint8Array): { image: Gray; wasGray: boolean } {
   return { image: { width, height, data: out }, wasGray };
 }
 
-/** Encodes grayscale as a lossless 8-bit grayscale PNG. */
+/** Encodes grayscale losslessly: 8-bit stays 8-bit, anything deeper is written as 16-bit. */
 export function encodePng(g: Gray): Uint8Array {
+  if (g.data instanceof Uint16Array) return encode({ width: g.width, height: g.height, data: g.data, depth: 16, channels: 1 });
   return encode({ width: g.width, height: g.height, data: g.data, depth: 8, channels: 1 });
 }
 
+/**
+ * Maps a high-bit-depth image to 8 bits for display. `center` and `width` are a window on the
+ * stored values (as radiologists set them); without them the full range in use is shown.
+ */
+export function toDisplay(g: Gray, window?: { center: number; width: number }): Gray {
+  if (!(g.data instanceof Uint16Array) && !window) return g;
+  let lo: number;
+  let hi: number;
+  if (window && window.width > 0) {
+    lo = window.center - window.width / 2;
+    hi = window.center + window.width / 2;
+  } else {
+    lo = Infinity;
+    hi = -Infinity;
+    for (const v of g.data) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+  }
+  const out = new Uint8Array(g.data.length);
+  const span = Math.max(1, hi - lo);
+  for (let i = 0; i < out.length; i++) out[i] = Math.max(0, Math.min(255, Math.round(((g.data[i] - lo) / span) * 255)));
+  return { width: g.width, height: g.height, data: out };
+}
+
 export const sha256 = (b: Uint8Array) => bytesToHex(sha256Bytes(b));
-export const pixelHash = (g: Gray) => sha256(new Uint8Array([...new Uint8Array(new Uint32Array([g.width, g.height]).buffer), ...g.data]));
+/** SHA-256 over dimensions and pixels. 8-bit images keep the original format so older records still verify. */
+export const pixelHash = (g: Gray) => {
+  const dims = new Uint32Array(g.data instanceof Uint16Array ? [g.width, g.height, 16] : [g.width, g.height]);
+  const px = new Uint8Array(g.data.buffer, g.data.byteOffset, g.data.byteLength);
+  const all = new Uint8Array(dims.byteLength + px.length);
+  all.set(new Uint8Array(dims.buffer), 0);
+  all.set(px, dims.byteLength);
+  return sha256(all);
+};
 
 /** Visualises where pixels changed: unchanged black, changed white. */
 export function differenceMap(a: Gray, b: Gray): Gray {
@@ -53,17 +96,20 @@ export function differenceMap(a: Gray, b: Gray): Gray {
   return { width: a.width, height: a.height, data: out };
 }
 
+/** Peak signal-to-noise ratio, relative to the image's own peak value (255, 4095, 65535...). */
 export function psnr(a: Gray, b: Gray): number {
   let mse = 0;
   for (let i = 0; i < a.data.length; i++) mse += (a.data[i] - b.data[i]) ** 2;
   mse /= a.data.length;
-  return mse === 0 ? Infinity : 10 * Math.log10((255 * 255) / mse);
+  const peak = maxOf(a);
+  return mse === 0 ? Infinity : 10 * Math.log10((peak * peak) / mse);
 }
 
 /** Mean SSIM over 8x8 windows (Wang et al., 2004). */
 export function ssim(a: Gray, b: Gray, win = 8): number {
-  const C1 = (0.01 * 255) ** 2;
-  const C2 = (0.03 * 255) ** 2;
+  const L = maxOf(a);
+  const C1 = (0.01 * L) ** 2;
+  const C2 = (0.03 * L) ** 2;
   let total = 0;
   let n = 0;
   for (let y = 0; y + win <= a.height; y += win) {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router";
-import { api, date, downloadRecordImage, short, useApi, useAuth, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
+import { api, date, downloadRecordFile, short, useApi, useAuth, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
 import { Check, Notice, PageHeader, Panel } from "../ui";
 
 type Opened = { meta: RecordMeta; record: Clinical; verification: { fileIntact: boolean; restoredExact: boolean; layers: number } };
@@ -9,7 +9,7 @@ type Tamper = { detected: boolean; changedPixel: { x: number; y: number }; stage
 const VIEWS = [
   { v: "stego", t: "Stored image", d: "What is saved and shared. The encrypted record is inside these pixels." },
   { v: "original", t: "Restored scan", d: "Recovered exactly from the stored image after the record is extracted." },
-  { v: "diff", t: "Changed pixels", d: "White = pixels that differ by 1 or 2 levels out of 255. Invisible to the eye." },
+  { v: "diff", t: "Changed pixels", d: "White = pixels the embedding changed, each by only a few levels. Invisible to the eye." },
 ] as const;
 
 export function RecordView() {
@@ -40,6 +40,8 @@ export function RecordView() {
   if (!data) return <p className="text-muted">Decrypting…</p>;
   const { meta, record, verification } = data;
   const s = meta.stats;
+  const dicom = meta.scan?.format === "dicom";
+  const depth = meta.scan?.bitDepth ?? 8;
 
   return (
     <>
@@ -57,12 +59,17 @@ export function RecordView() {
             <RecordImage key={view} id={meta.id} variant={view} />
             <p className="mt-3 text-sm text-muted">{VIEWS.find((x) => x.v === view)!.d}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button className="btn" onClick={() => void downloadRecordImage(meta.id)}>
-                Download stored image
+              <button className="btn" onClick={() => void downloadRecordFile(meta.id, "stored")}>
+                Download stored {dicom ? "DICOM" : "image"}
               </button>
+              {dicom && (
+                <button className="btn" onClick={() => void downloadRecordFile(meta.id, "original")} title="Rebuilt from the stored file and the encrypted record; logged">
+                  Download original DICOM
+                </button>
+              )}
               <label className="btn cursor-pointer">
-                Verify an image…
-                <input type="file" accept="image/png" className="hidden" onChange={(e) => e.target.files?.[0] && runVerify(e.target.files[0])} />
+                Verify a file…
+                <input type="file" accept="image/png,.dcm,application/dicom" className="hidden" onChange={(e) => e.target.files?.[0] && runVerify(e.target.files[0])} />
               </label>
             </div>
             {verify && (
@@ -144,9 +151,9 @@ export function RecordView() {
               {[
                 ["PSNR", `${s.psnr} dB`, "above 40 dB is invisible"],
                 ["SSIM", s.ssim.toFixed(4), "1.0 = identical"],
-                ["Max change", `±${s.maxPixelChange}`, "grey levels"],
+                ["Max change", `±${s.maxPixelChange}`, dicom && meta.scan?.rescale?.slope === 1 ? "HU (stored values)" : `of ${2 ** depth - 1} levels`],
                 ["Payload", `${(s.payloadBytes / 1024).toFixed(1)} KB`, "encrypted record"],
-                ["Density", `${s.bitsPerPixel} bpp`, `${s.layers} layer${s.layers > 1 ? "s" : ""}`],
+                ["Density", `${s.bitsPerPixel} bpp`, `${s.layers} layer${s.layers > 1 ? "s" : ""}${s.thresholds && Math.max(...s.thresholds) > 1 ? `, T=${s.thresholds.join("/")}` : ""}`],
                 ["Embed time", `${s.embedMs} ms`, `${meta.width}×${meta.height}`],
               ].map(([k, v, h]) => (
                 <div key={k} className="rounded-lg bg-panel-2 p-3">
@@ -156,6 +163,18 @@ export function RecordView() {
                 </div>
               ))}
             </dl>
+            {meta.scan && (
+              <div className="mx-5 mb-4 rounded-lg border border-line p-3 text-sm">
+                <div className="font-medium">
+                  {dicom ? `DICOM ${meta.scan.modality ?? ""}` : "PNG"} · {depth}-bit · {meta.width}×{meta.height}
+                </div>
+                {dicom && meta.scan.removedFields?.length ? (
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    Removed from the stored file and kept only inside the encrypted record: {meta.scan.removedFields.join(", ")}. The original file, header included, is rebuilt byte for byte on download.
+                  </p>
+                ) : null}
+              </div>
+            )}
             <p className="px-5 pb-5 font-mono text-[11px] leading-relaxed text-faint">
               original sha256 {short(meta.originalSha256)}
               <br />

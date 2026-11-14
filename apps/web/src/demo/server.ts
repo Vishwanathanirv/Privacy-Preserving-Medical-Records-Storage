@@ -4,6 +4,7 @@ import { GENESIS, auditHash, verifyChain, type AuditEntry } from "@medvault/core
 import type { RecordMeta, Role, User } from "../../../api/src/types";
 import { RecordInput } from "../../../api/src/schema";
 import { DEMO_PASSWORD, seedDemo } from "../../../api/src/seed";
+import { TransparencyLog } from "../../../api/src/translog";
 import { Vault, VaultError } from "../../../api/src/vault";
 
 /**
@@ -17,9 +18,9 @@ import { Vault, VaultError } from "../../../api/src/vault";
 type StoredRecord = Omit<RecordMeta, "authorName"> & { stegoPng: Uint8Array; wrappedKey: Uint8Array };
 type StoredUser = User & { passwordHash: string };
 type Grant = { patientId: string; doctorId: string; grantedAt: number };
-type State = { kek: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; audit: AuditEntry[]; session: string | null };
+type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; audit: AuditEntry[]; session: string | null };
 
-const STORAGE_KEY = "medvault-demo-v2";
+const STORAGE_KEY = "medvault-demo-v3";
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
 const b64 = (b: Uint8Array) => {
@@ -151,6 +152,7 @@ type Reply = { status: number; data: unknown };
 class DemoServer {
   private db!: MemoryDb;
   private vault!: Vault;
+  private tlog!: TransparencyLog;
   readonly ready: Promise<void>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -160,9 +162,10 @@ class DemoServer {
 
   private async boot() {
     const saved = this.load();
-    const state: State = saved ?? { kek: b64(randomBytes(32)), users: [], records: [], grants: [], audit: [], session: null };
+    const state: State = saved ?? { kek: b64(randomBytes(32)), logKey: b64(randomBytes(32)), users: [], records: [], grants: [], audit: [], session: null };
     this.db = new MemoryDb(state, () => this.scheduleSave());
     this.vault = new Vault(this.db, unb64(state.kek));
+    this.tlog = new TransparencyLog(() => this.db.auditAll(), unb64(state.logKey));
     if (!saved) {
       await new Promise((r) => setTimeout(r, 0));
       seedDemo(this.db, this.vault, await hashPassword(DEMO_PASSWORD));
@@ -236,7 +239,7 @@ class DemoServer {
   async handle(method: string, url: string, body: unknown): Promise<Reply> {
     await this.ready;
     try {
-      return { status: 200, data: await this.route(method, new URL(url, "http://demo.local").pathname, body) };
+      return { status: 200, data: await this.route(method, url, body) };
     } catch (e) {
       if ((e as Error).name === "ZodError") {
         const issues = (e as unknown as { issues: { path: (string | number)[]; message: string }[] }).issues;
@@ -259,7 +262,18 @@ class DemoServer {
     return png;
   }
 
-  private async route(method: string, p: string, body: unknown): Promise<unknown> {
+  /** A record's file for download (stored stego file, or the rebuilt original), with the server's checks. */
+  async file(recordId: string, kind: "stored" | "original") {
+    await this.ready;
+    const s = this.auth("doctor", "patient");
+    this.requireRecordAccess(s, recordId);
+    const f = this.vault.file(recordId, kind);
+    if (kind === "original") this.db.audit(s.id, "file.original", `record:${recordId}`);
+    return f;
+  }
+
+  private async route(method: string, url: string, body: unknown): Promise<unknown> {
+    const p = new URL(url, "http://demo.local").pathname;
     const db = this.db;
     let m: RegExpMatchArray | null;
 
@@ -373,7 +387,36 @@ class DemoServer {
     if (method === "GET" && p === "/api/audit/verify") {
       this.auth("admin");
       const entries = db.auditAll();
-      return { ...verifyChain(entries), entries: entries.length, head: entries.at(-1)?.hash ?? null };
+      return { ...verifyChain(entries), entries: entries.length, head: entries.at(-1)?.hash ?? null, transparency: this.tlog.audit() };
+    }
+    if (method === "GET" && p === "/api/log/head") {
+      this.auth();
+      return { head: this.tlog.head(), publicKey: this.tlog.publicKey, keyId: this.tlog.keyId };
+    }
+    if ((m = p.match(/^\/api\/log\/inclusion\/(\d+)$/)) && method === "GET") {
+      const s = this.auth();
+      const seq = Number(m[1]);
+      const size = Number(new URL(url, "http://demo.local").searchParams.get("size"));
+      const entry = db.auditAll()[seq - 1];
+      const visible =
+        s.role === "admin" ||
+        (s.role === "patient" && entry && [`patient:${s.id}`, ...db.listRecords(s.id).map((r) => r.id)].some((k) => entry.target.includes(k))) ||
+        (s.role === "doctor" && entry?.actor === s.id);
+      if (!entry || !visible) throw new HttpError(404, "Entry not found");
+      try {
+        return { entry, ...this.tlog.inclusion(seq, size) };
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+    if (method === "GET" && p === "/api/log/consistency") {
+      this.auth();
+      const q = new URL(url, "http://demo.local").searchParams;
+      try {
+        return this.tlog.consistency(Number(q.get("from")), Number(q.get("to")));
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
     }
     if (method === "GET" && p === "/api/admin/users") {
       this.auth("admin");
