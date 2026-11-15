@@ -68,6 +68,7 @@ flowchart LR
 
 ## Features
 
+- **Designed like a radiology reading room.** Scans hang on dark film in front of a lit light box, with scanner-style text burned into the corners (study, date, format, the AES-256-GCM payload size and PSNR). A scan line passes over the restored scan as it is decrypted. Everything else sits on frosted acrylic; IBM Plex throughout, light and dark.
 - **Roles and consent:**
   - Patients grant and revoke doctors, and changes apply instantly.
   - Doctors only see consenting patients. Refused access returns 404 and is logged.
@@ -124,7 +125,8 @@ The core (encryption, reversible embedding, PNG codec, audit chain) uses audited
 
 ```bash
 npm run lint && npm run typecheck
-npm test         # 25 tests
+npm test         # 40 tests
+npm run test:e2e # browser tests on the demo build: open, verify and tamper-test a record; revoke consent; verify the audit chain
 npm run benchmark
 ```
 

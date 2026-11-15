@@ -40,7 +40,7 @@ export function Users() {
                   <td className="px-5 py-3 font-medium">{u.name}</td>
                   <td className="hidden px-2 py-3 text-muted sm:table-cell">{u.email}</td>
                   <td className="px-5 py-3 text-right">
-                    <span className="rounded-full bg-panel-2 px-2.5 py-1 text-xs capitalize">{u.role}</span>
+                    <span className="rounded-[3px] bg-panel-2 px-2 py-0.5 font-mono text-xs">{u.role}</span>
                   </td>
                 </tr>
               ))}
@@ -84,7 +84,7 @@ function TransparencyPanel() {
     <Panel className="mb-5">
       <div className="grid gap-4 p-5 md:grid-cols-[1fr_auto]">
         <div>
-          <div className="label">Signed tree head · checked in this browser</div>
+          <div className="label">Signed tree head, checked in this browser</div>
           <p className="mt-2 text-sm">
             {ok ? "✓ " : "✗ "}
             {!check.signatureOk
@@ -116,6 +116,15 @@ function TransparencyPanel() {
 
 export function AuditLog() {
   const { data } = useApi<{ entries: AuditEntry[] }>("/api/audit");
+  const people = useApi<{ users: User[] }>("/api/admin/users");
+  // Show who an entry is about, not their id. Patients are users too, so one lookup covers both.
+  const names = new Map((people.data?.users ?? []).map((u) => [u.id, u.name]));
+  const who = (target: string) => {
+    const [kind, id] = target.split(":");
+    if ((kind === "user" || kind === "patient") && id && names.has(id)) return names.get(id)!;
+    if (kind === "record" && id) return `record ${id.slice(0, 8)}`;
+    return target;
+  };
   const v = useApi<{ ok: boolean; brokenAt: number | null; entries: number; head: string | null; transparency?: { headsChecked: number; firstBrokenHead: { size: number } | null } }>("/api/audit/verify");
   return (
     <>
@@ -155,7 +164,9 @@ export function AuditLog() {
                   <td className="px-5 py-2.5 font-mono text-xs text-faint">{e.seq}</td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-muted">{date(e.ts)}</td>
                   <td className="px-2 py-2.5">{ACTIONS[e.action] ?? e.action}</td>
-                  <td className="hidden max-w-56 truncate px-2 py-2.5 font-mono text-xs text-muted md:table-cell">{e.target}</td>
+                  <td className="hidden max-w-56 truncate px-2 py-2.5 text-sm text-muted md:table-cell" title={e.target}>
+                    {who(e.target)}
+                  </td>
                   <td className="px-5 py-2.5 font-mono text-xs text-faint">{e.hash.slice(0, 12)}</td>
                 </tr>
               ))}

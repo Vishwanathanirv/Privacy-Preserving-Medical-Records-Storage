@@ -21,7 +21,7 @@ export function Patients() {
                   <div className="min-w-0 flex-1">
                     <div className="font-medium">{p.name}</div>
                     <div className="text-sm text-muted">
-                      {p.records} record{p.records === 1 ? "" : "s"} · access since {date(p.grantedAt)}
+                      {p.records} record{p.records === 1 ? "" : "s"}, access since {date(p.grantedAt)}
                     </div>
                   </div>
                   <span className="text-sm text-muted">Open →</span>

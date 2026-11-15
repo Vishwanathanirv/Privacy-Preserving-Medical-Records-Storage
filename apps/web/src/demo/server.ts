@@ -155,6 +155,7 @@ class DemoServer {
   private tlog!: TransparencyLog;
   readonly ready: Promise<void>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushOnExit = false;
 
   constructor() {
     this.ready = this.boot();
@@ -185,7 +186,19 @@ class DemoServer {
     }
   }
 
+  /** Writes pending changes immediately, cancelling any scheduled save. */
+  private saveNow() {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.persist();
+  }
+
   private scheduleSave() {
+    if (!this.flushOnExit && typeof window !== "undefined") {
+      // Never lose a scheduled save to a tab being closed or reloaded.
+      this.flushOnExit = true;
+      window.addEventListener("pagehide", () => this.saveTimer && this.saveNow());
+    }
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
@@ -288,12 +301,14 @@ class DemoServer {
       }
       db.s.session = u.id;
       db.audit(u.id, "auth.login", `user:${u.id}`);
+      this.saveNow(); // who is signed in must never lag behind
       return { user: { id: u.id, name: u.name, email: u.email, role: u.role } };
     }
     if (method === "POST" && p === "/api/auth/logout") {
       if (this.session) db.audit(this.session.id, "auth.logout", `user:${this.session.id}`);
       db.s.session = null;
-      this.scheduleSave();
+      // Saved at once: a reload right after signing out must not bring the session back.
+      this.saveNow();
       return { ok: true };
     }
     if (method === "GET" && p === "/api/me") return { user: this.auth() };

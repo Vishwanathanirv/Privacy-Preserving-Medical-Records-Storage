@@ -45,18 +45,18 @@ export function RecordView() {
 
   return (
     <>
-      <PageHeader back={user?.role === "doctor" ? { to: `/patients/${meta.patientId}`, label: "Patient" } : { to: "/", label: "My records" }} title={record.title} sub={`${record.author} · ${date(record.createdAt)}`} />
+      <PageHeader back={user?.role === "doctor" ? { to: `/patients/${meta.patientId}`, label: "Patient" } : { to: "/", label: "My records" }} title={record.title} sub={`${record.author}, ${date(record.createdAt)}`} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
         <Panel className="self-start lg:sticky lg:top-20">
           <div className="flex gap-1 border-b border-line p-2" role="tablist">
             {VIEWS.map((x) => (
-              <button key={x.v} role="tab" aria-selected={view === x.v} onClick={() => setView(x.v)} className={`flex-1 rounded-lg px-3 py-2 text-sm ${view === x.v ? "bg-panel-2 font-medium" : "text-muted hover:text-ink"}`}>
+              <button key={x.v} role="tab" aria-selected={view === x.v} onClick={() => setView(x.v)} className={`flex-1 rounded-[3px] px-3 py-2 text-sm ${view === x.v ? "bg-accent-soft font-medium text-accent" : "text-muted hover:text-ink"}`}>
                 {x.t}
               </button>
             ))}
           </div>
           <div className="p-4">
-            <RecordImage key={view} id={meta.id} variant={view} />
+            <RecordImage key={view} meta={meta} variant={view} />
             <p className="mt-3 text-sm text-muted">{VIEWS.find((x) => x.v === view)!.d}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="btn" onClick={() => void downloadRecordFile(meta.id, "stored")}>
@@ -113,7 +113,7 @@ export function RecordView() {
                     ["Temp", record.vitals.temperature && `${record.vitals.temperature}°C`],
                     ["SpO₂", record.vitals.spo2 && `${record.vitals.spo2}%`],
                   ].map(([k, v]) => (
-                    <div key={k} className="rounded-lg bg-panel-2 p-2.5 text-center">
+                    <div key={k} className="rounded-[3px] bg-panel-2 p-2.5 text-center">
                       <div className="text-xs text-faint">{k}</div>
                       <div className="mt-0.5 font-medium tabular-nums">{v || "–"}</div>
                     </div>
@@ -156,7 +156,7 @@ export function RecordView() {
                 ["Density", `${s.bitsPerPixel} bpp`, `${s.layers} layer${s.layers > 1 ? "s" : ""}${s.thresholds && Math.max(...s.thresholds) > 1 ? `, T=${s.thresholds.join("/")}` : ""}`],
                 ["Embed time", `${s.embedMs} ms`, `${meta.width}×${meta.height}`],
               ].map(([k, v, h]) => (
-                <div key={k} className="rounded-lg bg-panel-2 p-3">
+                <div key={k} className="rounded-[3px] bg-panel-2 p-3">
                   <dt className="text-xs text-faint">{k}</dt>
                   <dd className="mt-0.5 font-semibold tabular-nums">{v}</dd>
                   <dd className="text-[11px] text-faint">{h}</dd>
@@ -164,9 +164,9 @@ export function RecordView() {
               ))}
             </dl>
             {meta.scan && (
-              <div className="mx-5 mb-4 rounded-lg border border-line p-3 text-sm">
+              <div className="mx-5 mb-4 rounded-[3px] border border-line p-3 text-sm">
                 <div className="font-medium">
-                  {dicom ? `DICOM ${meta.scan.modality ?? ""}` : "PNG"} · {depth}-bit · {meta.width}×{meta.height}
+                  {dicom ? `DICOM ${meta.scan.modality ?? ""}` : "PNG"}, {depth}-bit, {meta.width}×{meta.height}
                 </div>
                 {dicom && meta.scan.removedFields?.length ? (
                   <p className="mt-1 text-xs leading-relaxed text-muted">
@@ -187,9 +187,42 @@ export function RecordView() {
   );
 }
 
-function RecordImage({ id, variant }: { id: string; variant: ImageVariant }) {
-  const src = useRecordImage(id, variant);
+const VARIANT_TAG: Record<ImageVariant, string> = { stego: "STORED  watermarked", original: "RESTORED  bit-exact", diff: "DIFFERENCE  x255" };
+
+/** The scan on film, with scanner-style text in its corners, the way a radiologist sees it. */
+function RecordImage({ meta, variant }: { meta: RecordMeta; variant: ImageVariant }) {
+  const src = useRecordImage(meta.id, variant);
   const alt = VIEWS.find((x) => x.v === variant)!.t;
-  if (!src) return <div className="aspect-square w-full animate-pulse rounded-xl bg-black" aria-label={`Loading ${alt.toLowerCase()}`} />;
-  return <img src={src} alt={alt} className="aspect-square w-full rounded-xl bg-black object-contain" style={{ imageRendering: variant === "diff" ? "pixelated" : undefined }} />;
+  const s = meta.stats;
+  const modality = meta.scan?.format === "dicom" ? `DICOM ${meta.scan.bitDepth ?? 16}-bit` : "PNG 8-bit";
+  return (
+    <div className="film aspect-square w-full overflow-hidden">
+      {src ? (
+        <img src={src} alt={alt} className="h-full w-full object-contain" style={{ imageRendering: variant === "diff" ? "pixelated" : undefined }} />
+      ) : (
+        <div className="h-full w-full animate-pulse" aria-label={`Loading ${alt.toLowerCase()}`} />
+      )}
+      {src && variant === "original" && <div className="scanline" aria-hidden />}
+      <div className="overlay left-4 top-3">
+        MEDVAULT
+        <br />
+        {meta.title.length > 24 ? `${meta.title.slice(0, 23)}…` : meta.title}
+        <br />
+        ID {meta.id.slice(0, 8)}
+      </div>
+      <div className="overlay right-3 top-3 text-right">
+        {new Date(meta.createdAt).toLocaleDateString("en-CA")}
+        <br />
+        {modality}
+        <br />
+        {meta.width}x{meta.height}
+      </div>
+      <div className="overlay bottom-3 left-4">{VARIANT_TAG[variant]}</div>
+      <div className="overlay bottom-3 right-3 text-right">
+        AES-256-GCM {(s.payloadBytes / 1024).toFixed(1)} KB
+        <br />
+        PSNR {s.psnr.toFixed(1)} dB
+      </div>
+    </div>
+  );
 }

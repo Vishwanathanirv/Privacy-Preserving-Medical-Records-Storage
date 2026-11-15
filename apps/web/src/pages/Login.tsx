@@ -32,34 +32,34 @@ export function Login() {
   }
 
   return (
-    <div className="mx-auto grid min-h-dvh max-w-5xl items-center gap-10 px-4 py-10 md:grid-cols-[1fr_1.05fr]">
+    <div className="mx-auto grid min-h-dvh max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-[1.05fr_1fr] md:gap-14">
       <div>
         <div className="flex items-center gap-2.5">
           <img src="/favicon.svg" alt="" className="h-9 w-9" />
           <span className="text-xl font-semibold tracking-tight">MedVault</span>
         </div>
-        <h1 className="mt-8 text-[2.4rem] font-semibold leading-[1.08] tracking-tight">Medical records that travel inside the scan, encrypted.</h1>
-        <p className="mt-4 max-w-md leading-relaxed text-muted">
-          Each record is encrypted with AES-256-GCM and hidden inside its scan with reversible watermarking. Only doctors the patient approves can open it, the original scan comes back bit for bit, and every access is written to a tamper-evident log.
+        <h1 className="mt-7 max-w-[17ch] text-[2.5rem] font-semibold leading-[1.06] tracking-[-0.02em]">The record travels inside the scan, encrypted.</h1>
+        <Hero />
+        <p className="mt-5 max-w-lg leading-relaxed text-muted">
+          Each record is encrypted with AES-256-GCM and hidden in its scan by reversible watermarking. Only doctors the patient approves can open it, the original scan comes back bit for bit, and every access is written to a tamper-evident log.
         </p>
-        <ul className="mt-6 space-y-2 text-sm text-muted">
-          <li>• No plaintext medical data in the database</li>
-          <li>• Patient-controlled consent, revocable at any time</li>
-          <li>• Any change to the image or the log is detected</li>
-        </ul>
       </div>
       <div className="panel p-6 sm:p-8">
         <h2 className="text-lg font-semibold">Sign in</h2>
         <p className="mt-1 text-sm text-muted">Pick a demo account. All people and records are fictional.</p>
-        <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
+        <ul className="mt-5 divide-y divide-line border-y border-line">
           {DEMO.map((d) => (
-            <button key={d.email} disabled={busy} onClick={() => go(d.email, PASSWORD)} className="rounded-xl border border-line p-3.5 text-left transition hover:border-accent hover:bg-panel-2">
-              <div className="text-xs font-medium uppercase tracking-wider text-accent">{d.role}</div>
-              <div className="mt-1 font-medium">{d.name}</div>
-              <div className="mt-0.5 text-xs text-muted">{d.hint}</div>
-            </button>
+            <li key={d.email}>
+              <button disabled={busy} onClick={() => go(d.email, PASSWORD)} className="group grid w-full grid-cols-[1fr_auto] items-center gap-3 px-1 py-3 text-left transition hover:bg-panel-2 disabled:opacity-50">
+                <span>
+                  <span className="block font-medium group-hover:text-accent">{d.name}</span>
+                  <span className="mt-0.5 block text-[13px] text-muted">{d.hint}</span>
+                </span>
+                <span className="font-mono text-xs text-faint">{d.role.toLowerCase()} →</span>
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
         <div className="my-6 flex items-center gap-3 text-xs text-faint">
           <span className="h-px flex-1 bg-line" />
           or use your account
@@ -82,6 +82,55 @@ export function Login() {
         <p className="mt-4 text-xs text-faint">
           Demo password: <code className="font-mono">{PASSWORD}</code>
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A scan on film with its record sealed inside, drawn here so the idea is visible before signing
+ * in: the picture looks like any CT, and the corners say what it is carrying.
+ */
+function Hero() {
+  return (
+    <div className="film mt-7 aspect-[16/10] max-w-xl overflow-hidden" role="img" aria-label="A head CT on film. Its corner labels show it carries an encrypted record and is bit-exact restorable.">
+      <svg viewBox="0 0 320 200" className="h-full w-full">
+        <defs>
+          <radialGradient id="mv-skull" cx="50%" cy="48%" r="55%">
+            <stop offset="0" stopColor="#5d666b" />
+            <stop offset="1" stopColor="#3a4246" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="160" cy="100" rx="66" ry="84" fill="#e9eef0" />
+        <ellipse cx="160" cy="101" rx="61" ry="79" fill="url(#mv-skull)" />
+        <ellipse cx="140" cy="104" rx="13" ry="30" transform="rotate(-18 140 104)" fill="#151a1d" />
+        <ellipse cx="181" cy="104" rx="11" ry="26" transform="rotate(18 181 104)" fill="#151a1d" />
+        <ellipse cx="160" cy="68" rx="19" ry="16" fill="#7a8388" />
+        <circle cx="160" cy="92" r="4" fill="#8b9499" />
+        <circle cx="153" cy="148" r="2.5" fill="#8b9499" />
+        <circle cx="160" cy="148" r="2.5" fill="#8b9499" />
+        <circle cx="167" cy="148" r="2.5" fill="#8b9499" />
+      </svg>
+      <div className="scanline" aria-hidden />
+      <div className="overlay text-[8.5px] sm:text-[11px] left-5 top-3">
+        MEDVAULT
+        <br />
+        HEAD CT, FOLLOW-UP
+      </div>
+      <div className="overlay text-[8.5px] sm:text-[11px] right-3 top-3 text-right">
+        512x512
+        <br />
+        PNG 8-bit
+      </div>
+      <div className="overlay text-[8.5px] sm:text-[11px] bottom-3 left-5">
+        RECORD SEALED IN PIXELS
+        <br />
+        max change ±1 level
+      </div>
+      <div className="overlay text-[8.5px] sm:text-[11px] bottom-3 right-3 text-right">
+        AES-256-GCM
+        <br />
+        restores bit-exact
       </div>
     </div>
   );
