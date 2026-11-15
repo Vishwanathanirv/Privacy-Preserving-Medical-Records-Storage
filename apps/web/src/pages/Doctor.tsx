@@ -1,54 +1,92 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, date, useApi, type RecordMeta } from "../lib";
-import { Notice, PageHeader, Panel, RecordList } from "../ui";
+import { api, date, useApi, useAuth, type RecordMeta } from "../lib";
+import { Avatar, Notice, Sheet, Wallet } from "../ui";
 
 type Patient = { id: string; name: string; email: string; grantedAt: number; records: number };
 
-export function Patients() {
-  const { data, error } = useApi<{ patients: Patient[] }>("/api/patients");
-  return (
-    <>
-      <PageHeader title="My patients" sub="Only patients who have granted you access appear here. If a patient revokes consent, they disappear immediately." />
-      {error && <Notice tone="bad">{error}</Notice>}
-      <Panel>
-        {data?.patients.length ? (
-          <ul className="divide-y divide-line">
-            {data.patients.map((p) => (
-              <li key={p.id}>
-                <Link to={`/patients/${p.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-panel-2">
-                  <span className="grid h-10 w-10 place-items-center rounded-full bg-accent-soft font-semibold text-accent">{p.name.split(" ").map((x) => x[0]).slice(0, 2).join("")}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-sm text-muted">
-                      {p.records} record{p.records === 1 ? "" : "s"}, access since {date(p.grantedAt)}
-                    </div>
-                  </div>
-                  <span className="text-sm text-muted">Open →</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="px-5 py-10 text-center text-sm text-muted">No patients have shared their records with you yet.</p>
-        )}
-      </Panel>
-    </>
-  );
-}
-
-export function PatientDetail() {
+/**
+ * A doctor's home: the patients who have shared their records, as a contact list, and the
+ * selected patient's records as a wallet. Adding a record slides a form up as a sheet.
+ */
+export function DoctorHome() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { data, error } = useApi<{ patient: { id: string; name: string; email: string }; records: RecordMeta[] }>(`/api/patients/${id}`);
-  const [open, setOpen] = useState(false);
+  const { user } = useAuth();
+  const list = useApi<{ patients: Patient[] }>("/api/patients");
+  const patients = list.data?.patients ?? [];
+  const current = id ?? patients[0]?.id;
+  const detail = useApi<{ patient: { id: string; name: string; email: string }; records: RecordMeta[] }>(current ? `/api/patients/${current}` : null);
+  const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState("");
+  const shown = patients.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+
   return (
-    <>
-      <PageHeader back={{ to: "/", label: "Patients" }} title={data?.patient.name ?? "Patient"} sub={data?.patient.email} action={<button className="btn btn-accent" onClick={() => setOpen(true)}>New record</button>} />
-      {error && <Notice tone="bad">{error}</Notice>}
-      {open && id && <NewRecord patientId={id} onCancel={() => setOpen(false)} onCreated={(r) => nav(`/records/${r.id}`)} />}
-      <Panel title="Records">{data && <RecordList records={data.records} empty="No records yet." />}</Panel>
-    </>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+      <section aria-labelledby="h-patients">
+        <h1 id="h-patients" className="text-[1.75rem] font-extrabold leading-tight tracking-[-0.02em]">
+          Your patients
+        </h1>
+        <p className="mt-1 text-[0.95rem] text-muted">{user?.name}. Only patients who switched you on appear here; if they switch you off, they disappear.</p>
+        {patients.length > 3 && <input className="field mt-4" placeholder="Find a patient" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find a patient" />}
+        {list.error && (
+          <div className="mt-4">
+            <Notice tone="bad">{list.error}</Notice>
+          </div>
+        )}
+        <ul className="mt-4 space-y-1.5">
+          {shown.map((p) => (
+            <li key={p.id}>
+              <Link to={`/patients/${p.id}`} aria-current={p.id === current ? "page" : undefined} className={`flex items-center gap-3 rounded-[20px] p-3 transition-colors ${p.id === current ? "bg-panel shadow-[var(--shadow)]" : "hover:bg-panel/60"}`}>
+                <Avatar name={p.name} size={44} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-bold">{p.name}</span>
+                  <span className="block text-[13px] text-muted">
+                    {p.records} record{p.records === 1 ? "" : "s"}, shared {date(p.grantedAt)}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ))}
+          {list.data && !patients.length && <li className="rounded-[20px] border-2 border-dashed border-line p-6 text-center text-sm text-muted">No patients have shared their records with you yet.</li>}
+        </ul>
+      </section>
+
+      <section aria-label="Records" className="min-w-0">
+        {detail.data && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Avatar name={detail.data.patient.name} size={52} />
+                <div>
+                  <h2 className="text-[1.35rem] font-extrabold leading-tight">{detail.data.patient.name}</h2>
+                  <p className="text-sm text-muted">{detail.data.patient.email}</p>
+                </div>
+              </div>
+              <button className="btn btn-accent" onClick={() => setAdding(true)}>
+                New record
+              </button>
+            </div>
+            <div className="mt-6 max-w-xl">
+              <Wallet records={detail.data.records} empty="No records yet. Add the first one." base={`/patients/${detail.data.patient.id}/records`} />
+            </div>
+          </>
+        )}
+        {detail.error && <Notice tone="bad">{detail.error}</Notice>}
+      </section>
+
+      {adding && current && (
+        <Sheet label="New record" onClose={() => setAdding(false)} wide={false}>
+          <NewRecord patientId={current} onCancel={() => setAdding(false)} onCreated={(r) => {
+              setAdding(false);
+              void detail.reload();
+              void list.reload();
+              nav(`/patients/${current}/records/${r.id}`);
+            }}
+          />
+        </Sheet>
+      )}
+    </div>
   );
 }
 
@@ -80,8 +118,10 @@ function NewRecord({ patientId, onCancel, onCreated }: { patientId: string; onCa
   }
 
   return (
-    <Panel title="New record" className="mb-6" action={<button className="text-sm text-muted hover:text-ink" onClick={onCancel}>Cancel</button>}>
-      <form onSubmit={submit} className="grid gap-4 p-5 md:grid-cols-2">
+    <div className="pt-4">
+      <h2 className="pr-12 text-[1.5rem] font-extrabold tracking-[-0.02em]">New record</h2>
+      <p className="mt-1 text-sm text-muted">When you save, it is encrypted and sealed inside the scan's pixels. Only this patient's approved doctors can open it.</p>
+      <form onSubmit={submit} className="mt-5 grid gap-4 md:grid-cols-2">
         <label className="md:col-span-2">
           <span className="label">Title</span>
           <input className="field mt-1.5" value={f.title} onChange={set("title")} placeholder="Chest X-ray: persistent cough" required minLength={2} maxLength={120} />
@@ -129,8 +169,11 @@ function NewRecord({ patientId, onCancel, onCreated }: { patientId: string; onCa
           <button className="btn btn-accent" disabled={busy}>
             {busy ? "Encrypting and embedding…" : "Encrypt and save"}
           </button>
+          <button type="button" className="btn ml-2" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
         </div>
       </form>
-    </Panel>
+    </div>
   );
 }

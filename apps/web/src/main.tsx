@@ -1,115 +1,184 @@
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router";
-import "@fontsource/ibm-plex-sans/400.css";
-import "@fontsource/ibm-plex-sans/500.css";
-import "@fontsource/ibm-plex-sans/600.css";
-import "@fontsource/ibm-plex-mono/400.css";
-import "@fontsource/ibm-plex-mono/500.css";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
+import "@fontsource-variable/plus-jakarta-sans";
+import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
-import { AuthProvider, DEMO, useAuth, type Role } from "./lib";
+import { AuthProvider, DEMO, useAuth } from "./lib";
 import { Login } from "./pages/Login";
-import { PatientDetail, Patients } from "./pages/Doctor";
+import { DoctorHome } from "./pages/Doctor";
 import { RecordView } from "./pages/Record";
-import { Activity, Consent, MyRecords } from "./pages/Patient";
-import { AuditLog, Users } from "./pages/Admin";
+import { PatientHome } from "./pages/Patient";
+import { AdminHome } from "./pages/Admin";
 import { How } from "./pages/How";
+import { Avatar, Sheet } from "./ui";
 
-const NAV: Record<Role, { to: string; t: string }[]> = {
-  doctor: [
-    { to: "/", t: "Patients" },
-    { to: "/how", t: "How it works" },
-  ],
-  patient: [
-    { to: "/", t: "My records" },
-    { to: "/consent", t: "Access" },
-    { to: "/activity", t: "Activity" },
-    { to: "/how", t: "How it works" },
-  ],
-  admin: [
-    { to: "/", t: "Users" },
-    { to: "/audit", t: "Audit log" },
-    { to: "/how", t: "How it works" },
-  ],
-};
+const ROLE_NAME = { doctor: "Doctor", patient: "Patient", admin: "Administrator" } as const;
 
-function Shell() {
-  const { user, ready, logout } = useAuth();
-  if (!ready) return null;
-  if (!user) return <Login />;
+function useTheme(): [string, (t: string) => void] {
+  const [t, setT] = useState(() => {
+    try {
+      return localStorage.getItem("medvault-theme") ?? "system";
+    } catch {
+      return "system";
+    }
+  });
+  useEffect(() => {
+    if (t === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
+    try {
+      localStorage.setItem("medvault-theme", t);
+    } catch {
+      /* private mode */
+    }
+  }, [t]);
+  return [t, setT];
+}
+
+/** Everything that isn't the home screen lives behind your avatar. */
+function AccountMenu() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useTheme();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", down);
+    window.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  if (!user) return null;
+  const item = "flex w-full items-center rounded-[14px] px-3 py-2.5 text-left text-[0.92rem] font-medium hover:bg-panel-2";
   return (
-    <div className="min-h-dvh">
-      {/* The reading-room toolbar: who is signed in sits on the left, like a PACS session. */}
-      <header className="sticky top-0 z-30 border-b border-line bg-panel/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-5 px-4 sm:px-6">
-          <a href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <img src="/favicon.svg" alt="" className="h-7 w-7" />
-            <span className="hidden sm:inline">MedVault</span>
-          </a>
-          <span className="hidden h-6 w-px bg-line sm:block" aria-hidden />
-          <nav className="flex flex-1 gap-0.5 overflow-x-auto text-sm" aria-label="Main">
-            {NAV[user.role].map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end
-                className={({ isActive }) => `whitespace-nowrap border-b-2 px-3 py-[0.95rem] ${isActive ? "border-accent font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`}
-              >
-                {n.t}
-              </NavLink>
+    <div ref={ref} className="relative">
+      <button className="flex items-center gap-2.5 rounded-full border border-line bg-panel py-1 pl-1 pr-3 shadow-[var(--shadow)]" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" aria-label={`Account: ${user.name}`}>
+        <Avatar name={user.name} size={32} />
+        <span className="hidden text-left leading-tight sm:block">
+          <span className="block text-sm font-bold">{user.name}</span>
+          <span className="block text-[11px] text-muted">{ROLE_NAME[user.role]}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="fade absolute right-0 top-full z-30 mt-2 w-64 rounded-[22px] border border-line bg-panel p-2 shadow-[var(--shadow)]" role="menu">
+          <div className="px-3 pb-2 pt-1.5 text-xs text-muted">{user.email}</div>
+          <button
+            role="menuitem"
+            className={item}
+            onClick={() => {
+              setOpen(false);
+              navigate("/how");
+            }}
+          >
+            How MedVault works
+          </button>
+          <div className="flex gap-1 px-3 py-2" role="group" aria-label="Appearance">
+            {["system", "light", "dark"].map((t) => (
+              <button key={t} className={`flex-1 rounded-full px-2 py-1 text-xs font-semibold capitalize ${theme === t ? "bg-ink text-bg" : "bg-panel-2 text-muted"}`} onClick={() => setTheme(t)} aria-pressed={theme === t}>
+                {t === "system" ? "Auto" : t}
+              </button>
             ))}
-          </nav>
-          <span className="hidden text-right md:block">
-            <span className="block text-sm leading-tight">{user.name}</span>
-            <span className="font-mono text-[11px] text-faint">{user.role} session</span>
-          </span>
-          <button className="btn h-8 px-3 text-sm" onClick={() => void logout()}>
+          </div>
+          {DEMO && (
+            <button role="menuitem" className={item} onClick={() => void import("./demo/server").then(({ demo }) => demo.reset())}>
+              Reset demo data
+            </button>
+          )}
+          <button
+            role="menuitem"
+            className={`${item} text-bad`}
+            onClick={() => {
+              setOpen(false);
+              void logout();
+            }}
+          >
             Sign out
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Opens a record as a sheet over whichever home screen is underneath. */
+function RecordSheet() {
+  const { rid, id } = useParams();
+  const navigate = useNavigate();
+  return (
+    <Sheet label="Record" onClose={() => navigate(id ? `/patients/${id}` : "/")}>
+      <RecordView key={rid} id={rid!} />
+    </Sheet>
+  );
+}
+
+function HowSheet() {
+  const navigate = useNavigate();
+  return (
+    <Sheet label="How MedVault works" onClose={() => navigate("/")}>
+      <div className="pr-10 pt-3">
+        <How />
+      </div>
+    </Sheet>
+  );
+}
+
+function Shell() {
+  const { user, ready } = useAuth();
+  const loc = useLocation();
+  if (!ready) return null;
+  if (!user) return <Login />;
+  const how = loc.pathname === "/how";
+
+  let home: ReactNode;
+  if (user.role === "doctor")
+    home = (
+      <Routes>
+        <Route path="/patients/:id/*" element={<DoctorHome />} />
+        <Route path="*" element={<DoctorHome />} />
+      </Routes>
+    );
+  else if (user.role === "patient") home = <PatientHome />;
+  else home = <AdminHome />;
+
+  return (
+    <div className="min-h-dvh">
+      <header className="mx-auto flex max-w-[86rem] items-center gap-3 px-4 pb-2 pt-4 sm:px-6">
+        <a href="/" className="flex items-center gap-2.5 font-extrabold tracking-tight">
+          <img src="/favicon.svg" alt="" className="h-8 w-8" />
+          <span className="text-[1.1rem]">MedVault</span>
+        </a>
+        <span className="ml-1 hidden items-center gap-1.5 rounded-full bg-ok-soft px-3 py-1 text-xs font-semibold text-ok md:inline-flex" title="Records are stored encrypted inside their scans">
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
+            <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2M3.5 7h9v7h-9z" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" />
+          </svg>
+          Vault sealed
+        </span>
+        <span className="flex-1" />
+        <AccountMenu />
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        <Routes>
-          {user.role === "doctor" && (
-            <>
-              <Route path="/" element={<Patients />} />
-              <Route path="/patients/:id" element={<PatientDetail />} />
-            </>
-          )}
-          {user.role === "patient" && (
-            <>
-              <Route path="/" element={<MyRecords />} />
-              <Route path="/consent" element={<Consent />} />
-              <Route path="/activity" element={<Activity />} />
-            </>
-          )}
-          {user.role === "admin" && (
-            <>
-              <Route path="/" element={<Users />} />
-              <Route path="/audit" element={<AuditLog />} />
-            </>
-          )}
-          {user.role !== "admin" && <Route path="/records/:id" element={<RecordView />} />}
-          <Route path="/how" element={<How />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-      <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-faint sm:px-6">
+      <main className="mx-auto max-w-[86rem] px-4 pb-14 pt-4 sm:px-6">{home}</main>
+      <footer className="mx-auto max-w-[86rem] px-4 pb-8 text-xs text-faint sm:px-6">
         Built by{" "}
         <a href="https://vishwanathan.dev" className="text-muted underline underline-offset-4">
           Vishwanathan R
         </a>
         . Demo with fictional people and synthetic scans. Not for real patient data without a security review.
-        {DEMO && (
-          <>
-            {" "}
-            This sandbox runs entirely in your browser and is saved only on this device.{" "}
-            <button className="text-muted underline underline-offset-4 hover:text-ink" onClick={() => void import("./demo/server").then(({ demo }) => demo.reset())}>
-              Reset demo data
-            </button>
-          </>
-        )}
+        {DEMO && " This sandbox runs entirely in your browser and is saved only on this device."}
       </footer>
+
+      <Routes>
+        {user.role === "patient" && <Route path="/records/:rid" element={<RecordSheet />} />}
+        {user.role === "doctor" && <Route path="/patients/:id/records/:rid" element={<RecordSheet />} />}
+        <Route path="/how" element={<HowSheet />} />
+        <Route path="/" element={null} />
+        {user.role === "doctor" && <Route path="/patients/:id" element={null} />}
+        <Route path="*" element={how ? null : <Navigate to="/" replace />} />
+      </Routes>
     </div>
   );
 }

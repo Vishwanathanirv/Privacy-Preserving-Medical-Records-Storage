@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../lib";
+import { Avatar } from "../ui";
 
 const DEMO = [
   { email: "meera@medvault.dev", name: "Dr. Meera Iyer", role: "Doctor", hint: "Sees two consenting patients" },
@@ -32,30 +33,31 @@ export function Login() {
   }
 
   return (
-    <div className="mx-auto grid min-h-dvh max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-[1.05fr_1fr] md:gap-14">
+    <div className="mx-auto grid min-h-dvh max-w-6xl items-center gap-10 px-4 py-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
       <div>
         <div className="flex items-center gap-2.5">
           <img src="/favicon.svg" alt="" className="h-9 w-9" />
-          <span className="text-xl font-semibold tracking-tight">MedVault</span>
+          <span className="text-xl font-extrabold tracking-tight">MedVault</span>
         </div>
-        <h1 className="mt-7 max-w-[17ch] text-[2.5rem] font-semibold leading-[1.06] tracking-[-0.02em]">The record travels inside the scan, encrypted.</h1>
-        <Hero />
-        <p className="mt-5 max-w-lg leading-relaxed text-muted">
-          Each record is encrypted with AES-256-GCM and hidden in its scan by reversible watermarking. Only doctors the patient approves can open it, the original scan comes back bit for bit, and every access is written to a tamper-evident log.
+        <h1 className="mt-7 max-w-[16ch] text-[clamp(2.2rem,4.6vw,3.3rem)] font-extrabold leading-[1.02] tracking-[-0.035em]">Your records travel inside your scans, encrypted.</h1>
+        <p className="mt-4 max-w-lg text-[1.02rem] leading-relaxed text-muted">
+          Each record is encrypted with AES-256-GCM and hidden in its scan by reversible watermarking. Only doctors the patient switches on can open it, the original scan comes back bit for bit, and every access is written to a log anyone can verify.
         </p>
+        <Hero />
       </div>
       <div className="panel p-6 sm:p-8">
-        <h2 className="text-lg font-semibold">Sign in</h2>
-        <p className="mt-1 text-sm text-muted">Pick a demo account. All people and records are fictional.</p>
-        <ul className="mt-5 divide-y divide-line border-y border-line">
+        <h2 className="text-xl font-extrabold">Sign in</h2>
+        <p className="mt-1 text-sm text-muted">Pick someone to be. All people and records are fictional.</p>
+        <ul className="mt-5 grid grid-cols-2 gap-3">
           {DEMO.map((d) => (
             <li key={d.email}>
-              <button disabled={busy} onClick={() => go(d.email, PASSWORD)} className="group grid w-full grid-cols-[1fr_auto] items-center gap-3 px-1 py-3 text-left transition hover:bg-panel-2 disabled:opacity-50">
+              <button disabled={busy} onClick={() => go(d.email, PASSWORD)} className="group flex h-full w-full flex-col items-start gap-3 rounded-[20px] border border-line bg-panel-2 p-4 text-left transition hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow)] disabled:opacity-50">
+                <Avatar name={d.name} size={44} />
                 <span>
-                  <span className="block font-medium group-hover:text-accent">{d.name}</span>
-                  <span className="mt-0.5 block text-[13px] text-muted">{d.hint}</span>
+                  <span className="block font-bold leading-tight">{d.name}</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold text-accent">{d.role}</span>
+                  <span className="mt-1 block text-[12.5px] leading-snug text-muted">{d.hint}</span>
                 </span>
-                <span className="font-mono text-xs text-faint">{d.role.toLowerCase()} →</span>
               </button>
             </li>
           ))}
@@ -93,7 +95,7 @@ export function Login() {
  */
 function Hero() {
   return (
-    <div className="film mt-7 aspect-[16/10] max-w-xl overflow-hidden" role="img" aria-label="A head CT on film. Its corner labels show it carries an encrypted record and is bit-exact restorable.">
+    <div className="film mt-7 hidden aspect-[16/10] max-w-xl overflow-hidden sm:block" role="img" aria-label="A head CT on film. Its corner labels show it carries an encrypted record and is bit-exact restorable.">
       <svg viewBox="0 0 320 200" className="h-full w-full">
         <defs>
           <radialGradient id="mv-skull" cx="50%" cy="48%" r="55%">

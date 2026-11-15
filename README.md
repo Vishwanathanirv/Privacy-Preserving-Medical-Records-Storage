@@ -68,7 +68,7 @@ flowchart LR
 
 ## Features
 
-- **Designed like a radiology reading room.** Scans hang on dark film in front of a lit light box, with scanner-style text burned into the corners (study, date, format, the AES-256-GCM payload size and PSNR). A scan line passes over the restored scan as it is decrypted. Everything else sits on frosted acrylic; IBM Plex throughout, light and dark.
+- **A health wallet, not a dashboard.** Records are cards you flip through, and each card's art is the scan the record is sealed inside. Opening one slides it up as a sheet. There is no menu bar: each person gets one home screen with everything they can do. Patients see their wallet, a switch for each doctor and their activity feed. Doctors see their patients as contacts, with the selected patient's wallet. Admins see accounts and the audit log. Everything else sits behind the avatar menu. Plus Jakarta Sans, light and dark, and it works on a phone.
 - **Roles and consent:**
   - Patients grant and revoke doctors, and changes apply instantly.
   - Doctors only see consenting patients. Refused access returns 404 and is logged.

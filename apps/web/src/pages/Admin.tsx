@@ -1,7 +1,7 @@
 import { checkGrowth, fetchHead, type GrowthCheck, type HeadCheck } from "../translog";
 import { useEffect, useState } from "react";
 import { ACTIONS, api, date, short, useApi, type AuditEntry, type User } from "../lib";
-import { Notice, PageHeader, Panel } from "../ui";
+import { Avatar, Notice, PageHeader, Panel } from "../ui";
 
 export function Users() {
   const { data, reload } = useApi<{ users: User[]; counts: Record<string, number> }>("/api/admin/users");
@@ -22,10 +22,10 @@ export function Users() {
 
   return (
     <>
-      <PageHeader title="Users" sub="Administrators manage accounts but cannot open medical records. That needs a patient's consent." />
+      <PageHeader title="Run the vault" sub="Administrators manage accounts and check the audit log, but cannot open medical records. That needs a patient's consent." />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         {Object.entries(data?.counts ?? {}).map(([k, v]) => (
-          <div key={k} className="panel p-4">
+          <div key={k} className="panel !rounded-[20px] p-4">
             <div className="label">{k.replace(/([A-Z])/g, " $1")}</div>
             <div className="mt-1.5 text-2xl font-semibold tabular-nums">{v}</div>
           </div>
@@ -37,10 +37,15 @@ export function Users() {
             <tbody>
               {(data?.users ?? []).map((u) => (
                 <tr key={u.id} className="border-t border-line first:border-0">
-                  <td className="px-5 py-3 font-medium">{u.name}</td>
+                  <td className="px-5 py-3 font-medium">
+                    <span className="flex items-center gap-3">
+                      <Avatar name={u.name} size={32} />
+                      {u.name}
+                    </span>
+                  </td>
                   <td className="hidden px-2 py-3 text-muted sm:table-cell">{u.email}</td>
                   <td className="px-5 py-3 text-right">
-                    <span className="rounded-[3px] bg-panel-2 px-2 py-0.5 font-mono text-xs">{u.role}</span>
+                    <span className="rounded-full bg-panel-2 px-2.5 py-0.5 text-xs font-semibold capitalize">{u.role}</span>
                   </td>
                 </tr>
               ))}
@@ -48,7 +53,7 @@ export function Users() {
           </table>
         </Panel>
         <Panel title="Add a user">
-          <form onSubmit={create} className="space-y-3 p-5">
+          <form onSubmit={create} className="space-y-3 px-5 pb-5 pt-3">
             <input className="field" placeholder="Full name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required aria-label="Full name" />
             <input className="field" type="email" placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required aria-label="Email" />
             <select className="field" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} aria-label="Role">
@@ -127,16 +132,18 @@ export function AuditLog() {
   };
   const v = useApi<{ ok: boolean; brokenAt: number | null; entries: number; head: string | null; transparency?: { headsChecked: number; firstBrokenHead: { size: number } | null } }>("/api/audit/verify");
   return (
-    <>
-      <PageHeader
-        title="Audit log"
-        sub="Each entry includes the SHA-256 hash of the one before it and is a leaf of a signed Merkle log, so editing or deleting any past entry is detected."
-        action={
-          <button className="btn" onClick={() => void v.reload()}>
-            Verify chain
-          </button>
-        }
-      />
+    <section className="mt-8" aria-labelledby="h-audit">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="h-audit" className="text-[1.35rem] font-extrabold">
+            Audit log
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted">Each entry includes the SHA-256 hash of the one before it and is a leaf of a signed Merkle log, so editing or deleting any past entry is detected.</p>
+        </div>
+        <button className="btn" onClick={() => void v.reload()}>
+          Verify chain
+        </button>
+      </div>
       <TransparencyPanel />
       {v.data && (
         <div className="mb-5">
@@ -174,6 +181,16 @@ export function AuditLog() {
           </table>
         </div>
       </Panel>
+    </section>
+  );
+}
+
+/** The administrator's one screen: accounts, then the audit log. */
+export function AdminHome() {
+  return (
+    <>
+      <Users />
+      <AuditLog />
     </>
   );
 }

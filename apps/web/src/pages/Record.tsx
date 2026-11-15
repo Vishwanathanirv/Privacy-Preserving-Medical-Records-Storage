@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
-import { api, date, downloadRecordFile, short, useApi, useAuth, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
+import { api, date, downloadRecordFile, short, useApi, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
 import { Check, Notice, PageHeader, Panel } from "../ui";
 
 type Opened = { meta: RecordMeta; record: Clinical; verification: { fileIntact: boolean; restoredExact: boolean; layers: number } };
@@ -12,9 +11,7 @@ const VIEWS = [
   { v: "diff", t: "Changed pixels", d: "White = pixels the embedding changed, each by only a few levels. Invisible to the eye." },
 ] as const;
 
-export function RecordView() {
-  const { id } = useParams();
-  const { user } = useAuth();
+export function RecordView({ id }: { id: string }) {
   const { data, error } = useApi<Opened>(`/api/records/${id}`);
   const [view, setView] = useState<(typeof VIEWS)[number]["v"]>("stego");
   const [tamper, setTamper] = useState<Tamper | null>(null);
@@ -36,8 +33,13 @@ export function RecordView() {
     }
   }
 
-  if (error) return <Notice tone="bad">{error}</Notice>;
-  if (!data) return <p className="text-muted">Decrypting…</p>;
+  if (error)
+    return (
+      <div className="pt-6">
+        <Notice tone="bad">{error}</Notice>
+      </div>
+    );
+  if (!data) return <p className="pt-6 text-muted">Decrypting…</p>;
   const { meta, record, verification } = data;
   const s = meta.stats;
   const dicom = meta.scan?.format === "dicom";
@@ -45,12 +47,14 @@ export function RecordView() {
 
   return (
     <>
-      <PageHeader back={user?.role === "doctor" ? { to: `/patients/${meta.patientId}`, label: "Patient" } : { to: "/", label: "My records" }} title={record.title} sub={`${record.author}, ${date(record.createdAt)}`} />
+      <div className="pr-12 pt-3">
+        <PageHeader title={record.title} sub={`${record.author}, ${date(record.createdAt)}`} />
+      </div>
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-        <Panel className="self-start lg:sticky lg:top-20">
-          <div className="flex gap-1 border-b border-line p-2" role="tablist">
+        <Panel className="self-start overflow-hidden lg:sticky lg:top-4">
+          <div className="m-3 mb-0 flex gap-1 rounded-full bg-panel-2 p-1" role="tablist">
             {VIEWS.map((x) => (
-              <button key={x.v} role="tab" aria-selected={view === x.v} onClick={() => setView(x.v)} className={`flex-1 rounded-[3px] px-3 py-2 text-sm ${view === x.v ? "bg-accent-soft font-medium text-accent" : "text-muted hover:text-ink"}`}>
+              <button key={x.v} role="tab" aria-selected={view === x.v} onClick={() => setView(x.v)} className={`flex-1 rounded-full px-3 py-1.5 text-[13px] font-semibold ${view === x.v ? "bg-panel text-ink shadow-[var(--shadow)]" : "text-muted hover:text-ink"}`}>
                 {x.t}
               </button>
             ))}
@@ -82,7 +86,7 @@ export function RecordView() {
 
         <div className="space-y-5">
           <Panel title="Clinical record">
-            <dl className="space-y-4 p-5 text-sm">
+            <dl className="space-y-4 px-5 pb-5 pt-3 text-sm">
               <div>
                 <dt className="label">Diagnosis</dt>
                 <dd className="mt-1 text-base">{record.diagnosis}</dd>
@@ -113,7 +117,7 @@ export function RecordView() {
                     ["Temp", record.vitals.temperature && `${record.vitals.temperature}°C`],
                     ["SpO₂", record.vitals.spo2 && `${record.vitals.spo2}%`],
                   ].map(([k, v]) => (
-                    <div key={k} className="rounded-[3px] bg-panel-2 p-2.5 text-center">
+                    <div key={k} className="rounded-[14px] bg-panel-2 p-2.5 text-center">
                       <div className="text-xs text-faint">{k}</div>
                       <div className="mt-0.5 font-medium tabular-nums">{v || "–"}</div>
                     </div>
@@ -124,7 +128,7 @@ export function RecordView() {
           </Panel>
 
           <Panel title="Security checks">
-            <ul className="space-y-2.5 p-5">
+            <ul className="space-y-2.5 px-5 pb-5 pt-3">
               <Check ok>Decrypted with AES-256-GCM using this record's own key (authenticity verified)</Check>
               <Check ok={verification.fileIntact}>Stored image matches its SHA-256 fingerprint</Check>
               <Check ok={verification.restoredExact}>Restored scan is bit-for-bit identical to the original</Check>
@@ -147,7 +151,7 @@ export function RecordView() {
           </Panel>
 
           <Panel title="Watermark quality">
-            <dl className="grid grid-cols-3 gap-3 p-5 text-sm">
+            <dl className="grid grid-cols-2 gap-3 px-5 pb-5 pt-3 text-sm sm:grid-cols-3">
               {[
                 ["PSNR", `${s.psnr} dB`, "above 40 dB is invisible"],
                 ["SSIM", s.ssim.toFixed(4), "1.0 = identical"],
@@ -156,7 +160,7 @@ export function RecordView() {
                 ["Density", `${s.bitsPerPixel} bpp`, `${s.layers} layer${s.layers > 1 ? "s" : ""}${s.thresholds && Math.max(...s.thresholds) > 1 ? `, T=${s.thresholds.join("/")}` : ""}`],
                 ["Embed time", `${s.embedMs} ms`, `${meta.width}×${meta.height}`],
               ].map(([k, v, h]) => (
-                <div key={k} className="rounded-[3px] bg-panel-2 p-3">
+                <div key={k} className="rounded-[14px] bg-panel-2 p-3">
                   <dt className="text-xs text-faint">{k}</dt>
                   <dd className="mt-0.5 font-semibold tabular-nums">{v}</dd>
                   <dd className="text-[11px] text-faint">{h}</dd>
@@ -164,7 +168,7 @@ export function RecordView() {
               ))}
             </dl>
             {meta.scan && (
-              <div className="mx-5 mb-4 rounded-[3px] border border-line p-3 text-sm">
+              <div className="mx-5 mb-4 rounded-[14px] border border-line p-3 text-sm">
                 <div className="font-medium">
                   {dicom ? `DICOM ${meta.scan.modality ?? ""}` : "PNG"}, {depth}-bit, {meta.width}×{meta.height}
                 </div>
