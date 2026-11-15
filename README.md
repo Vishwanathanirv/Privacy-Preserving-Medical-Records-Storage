@@ -1,6 +1,5 @@
 # MedVault · Privacy-preserving medical records storage
 
-> Built by [Vishwanathan R](https://vishwanathan.dev) · [Portfolio](https://vishwanathan.dev) · [Resume](https://vishwanathan.dev/resume.pdf)
 
 MedVault stores each medical record **encrypted inside its own scan**. The record is sealed with AES-256-GCM, then hidden in the image's pixels with **reversible watermarking**. It works on **real DICOM files from scanners (12 and 16-bit CT, MR, X-ray)** as well as PNG. Only doctors the patient approves can open a record. When they do, the **original file is restored byte for byte**, and every access is written to a **signed, Merkle-tree transparency log** that patients can verify in their own browser.
 
@@ -148,4 +147,4 @@ TypeScript · Node.js 22 · Fastify · node:sqlite · AES-256-GCM (@noble/cipher
 
 ## License
 
-MIT © Vishwanathan R
+MIT

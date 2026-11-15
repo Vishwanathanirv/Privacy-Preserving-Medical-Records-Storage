@@ -163,11 +163,7 @@ function Shell() {
       </header>
       <main className="mx-auto max-w-[86rem] px-4 pb-14 pt-4 sm:px-6">{home}</main>
       <footer className="mx-auto max-w-[86rem] px-4 pb-8 text-xs text-faint sm:px-6">
-        Built by{" "}
-        <a href="https://vishwanathan.dev" className="text-muted underline underline-offset-4">
-          Vishwanathan R
-        </a>
-        . Demo with fictional people and synthetic scans. Not for real patient data without a security review.
+        Demo with fictional people and synthetic scans. Not for real patient data without a security review.
         {DEMO && " This sandbox runs entirely in your browser and is saved only on this device."}
       </footer>
 
