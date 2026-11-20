@@ -98,6 +98,7 @@ test("a patient lends a record for 15 minutes, the doctor opens it, and taking i
 
 test("the browser proves a restored scan is bit-exact against the fingerprint in the signed log", async ({ page }) => {
   await signInAs(page, "Anitha Kumar");
+  await expect(page.getByRole("heading", { name: /Anitha’s cards/ })).toBeVisible();
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox", { name: "Command" }).fill("bit-exact");
   await page.keyboard.press("Enter");
