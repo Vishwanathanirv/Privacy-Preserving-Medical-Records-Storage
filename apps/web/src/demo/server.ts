@@ -6,6 +6,7 @@ import { DEMO_PASSWORD, seedDemo } from "../../../api/src/seed";
 import { Service, type Result, type Session, type Store } from "../../../api/src/service";
 import { TransparencyLog } from "../../../api/src/translog";
 import { Vault } from "../../../api/src/vault";
+import { SESSION_KEY, STORAGE_KEY } from "./keys";
 import mriUrl from "../../../../samples/brain-mri-t1.png?url";
 import xray1Url from "../../../../samples/chest-xray-pa-1.png?url";
 import xray2Url from "../../../../samples/chest-xray-pa-2.png?url";
@@ -35,7 +36,6 @@ type StoredUser = User & { passwordHash: string };
 type Grant = { patientId: string; doctorId: string; grantedAt: number };
 type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; loans: Loan[]; cards: EmergencyCardRow[]; sosLink: string | null; audit: AuditEntry[]; session: string | null };
 
-const STORAGE_KEY = "medvault-demo-v6";
 const SCRYPT = { N: 32768, r: 8, p: 1 };
 const DUMMY_HASH = `scrypt$${SCRYPT.N}$${"00".repeat(16)}$${"00".repeat(32)}`;
 
@@ -250,6 +250,8 @@ class DemoServer {
   private persist() {
     try {
       const s = this.db.s;
+      if (s.session) localStorage.setItem(SESSION_KEY, "1");
+      else localStorage.removeItem(SESSION_KEY);
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, records: s.records.map((r) => ({ ...r, stegoPng: toBase64(r.stegoPng), wrappedKey: toBase64(r.wrappedKey) })), loans: s.loans.map((l) => ({ ...l, wrappedKey: l.wrappedKey ? toBase64(l.wrappedKey) : null })) }));
     } catch {
       // Storage full or unavailable (private window): the sandbox keeps working in memory.
@@ -266,6 +268,7 @@ class DemoServer {
   reset() {
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SESSION_KEY);
     } catch {
       /* ignore */
     }

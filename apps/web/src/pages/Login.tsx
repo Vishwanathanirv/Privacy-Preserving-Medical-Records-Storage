@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { randomBytes } from "@noble/hashes/utils.js";
-import { decodePng, embed, encryptRecord, type Gray } from "@medvault/core";
+import type { Gray } from "@medvault/core";
 import xrayUrl from "../../../../samples/chest-xray-pa-2.png?url";
 import { DEMO, useAuth } from "../lib";
 import { Avatar, Mark } from "../ui";
@@ -177,8 +176,10 @@ function Lens() {
     let live = true;
     const start = () =>
       void (async () => {
-        const g = decodePng(new Uint8Array(await (await fetch(xrayUrl)).arrayBuffer())).image;
-        const sealed = encryptRecord(randomBytes(32), crypto.randomUUID(), crypto.randomUUID(), { title: "Chest X-ray: persistent cough", diagnosis: "Bilateral patchy opacities; viral pneumonia most likely.", medications: ["Paracetamol 500 mg as needed"] });
+        // The crypto and imaging code loads after the page has painted.
+        const [{ decodePng, embed, encryptRecord }, png] = await Promise.all([import("@medvault/core"), fetch(xrayUrl).then((r) => r.arrayBuffer())]);
+        const g = decodePng(new Uint8Array(png)).image;
+        const sealed = encryptRecord(crypto.getRandomValues(new Uint8Array(32)), crypto.randomUUID(), crypto.randomUUID(), { title: "Chest X-ray: persistent cough", diagnosis: "Bilateral patchy opacities; viral pneumonia most likely.", medications: ["Paracetamol 500 mg as needed"] });
         const { image } = embed(g, sealed.ciphertext);
         if (!live) return;
         const toCanvas = (img: Gray, f: (i: number) => [number, number, number]) => {

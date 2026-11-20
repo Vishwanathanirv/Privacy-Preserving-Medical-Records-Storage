@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
+import { demoSessionHint } from "./demo/keys";
 
 export type Role = "admin" | "doctor" | "patient";
 export type User = { id: string; name: string; email: string; role: Role };
@@ -69,6 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    // In the browser demo, a first-time visitor is not signed in: skip starting the sandbox (and
+    // seeding its records) until they pick someone, so the first screen stays fast.
+    if (DEMO && !demoSessionHint()) {
+      setReady(true);
+      return;
+    }
     api<{ user: User }>("/api/me")
       .then((r) => setUser(r.user))
       .catch(() => setUser(null))

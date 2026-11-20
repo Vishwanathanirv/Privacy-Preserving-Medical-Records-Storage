@@ -2,14 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#07080a" />
     <meta name="color-scheme" content="dark" />
-    <meta name="description" content="MedVault: encrypted medical records hidden inside scans with reversible watermarking and patient-controlled access." />
+    <title>MedVault · Your scan is the envelope</title>
+    <meta name="description" content="A health wallet you hold and lend: each medical record is encrypted and hidden inside its own scan, reversibly. Lend a record to a doctor for an hour, carry a break-glass emergency card, and prove in your browser that the scan comes back bit-exact." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <title>MedVault · Privacy-preserving medical records</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MedVault" />
+    <meta property="og:title" content="MedVault · Your scan is the envelope" />
+    <meta property="og:description" content="Medical records encrypted and hidden inside their own scans, reversibly. Lend one for an hour. Break the glass in an emergency. Prove it's bit-exact." />
+    <meta property="og:image" content="https://medvault-five-pi.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MedVault: a chest X-ray with a lens over the pixels that carry an encrypted record, next to the headline 'Your scan is the envelope.'" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="MedVault · Your scan is the envelope" />
+    <meta name="twitter:description" content="Medical records encrypted and hidden inside their own scans, reversibly. Lend, break the glass, prove it's bit-exact." />
+    <meta name="twitter:image" content="https://medvault-five-pi.vercel.app/og.png" />
   </head>
   <body>
+    <noscript>MedVault runs its cryptography in your browser, so it needs JavaScript.</noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

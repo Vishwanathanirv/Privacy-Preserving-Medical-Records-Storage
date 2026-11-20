@@ -1,19 +1,29 @@
-import { StrictMode, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { StrictMode, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router";
-import "@fontsource-variable/bricolage-grotesque";
+// "standard" carries all three axes (weight, width, optical size) that the type uses.
+import "@fontsource-variable/bricolage-grotesque/standard.css";
 import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
 import { AuthProvider, DEMO, api, refresh, useApi, useAuth, useGo, type RecordMeta } from "./lib";
-import { LendForm } from "./loans";
 import { Login } from "./pages/Login";
-import { DoctorHome } from "./pages/Doctor";
-import { RecordView } from "./pages/Record";
-import { PatientHome } from "./pages/Patient";
-import { AdminHome } from "./pages/Admin";
-import { How } from "./pages/How";
 import { Palette, openPalette, type Command } from "./palette";
-import { SosPage } from "./pages/Emergency";
+
+// Everything but the first screen loads on demand, so the pitch paints fast.
+const DoctorHome = lazy(() => import("./pages/Doctor").then((m) => ({ default: m.DoctorHome })));
+const RecordView = lazy(() => import("./pages/Record").then((m) => ({ default: m.RecordView })));
+const PatientHome = lazy(() => import("./pages/Patient").then((m) => ({ default: m.PatientHome })));
+const AdminHome = lazy(() => import("./pages/Admin").then((m) => ({ default: m.AdminHome })));
+const How = lazy(() => import("./pages/How").then((m) => ({ default: m.How })));
+const SosPage = lazy(() => import("./pages/Emergency").then((m) => ({ default: m.SosPage })));
+const LendForm = lazy(() => import("./loans").then((m) => ({ default: m.LendForm })));
+
+const Loading = () => (
+  <div className="grid gap-4 pt-4" aria-busy="true" aria-label="Loading">
+    <div className="skeleton h-12 w-2/3" />
+    <div className="skeleton h-48" />
+  </div>
+);
 import { Avatar, Mark, Sheet } from "./ui";
 
 const ROLE_NAME = { doctor: "Doctor", patient: "Patient", admin: "Administrator" } as const;
@@ -75,7 +85,9 @@ function RecordSheet() {
   const go = useGo();
   return (
     <Sheet label="Record" onClose={() => go(id ? `/patients/${id}` : "/")}>
-      <RecordView key={rid} id={rid!} />
+      <Suspense fallback={<Loading />}>
+        <RecordView key={rid} id={rid!} />
+      </Suspense>
     </Sheet>
   );
 }
@@ -102,6 +114,7 @@ function LendSheet() {
         </div>
       )}
       {record && team.data && (
+        <Suspense fallback={<Loading />}>
         <LendForm
           key={record.id}
           record={record}
@@ -112,6 +125,7 @@ function LendSheet() {
             go("/");
           }}
         />
+        </Suspense>
       )}
       {!mine.data && <div className="skeleton mt-6 h-40" />}
     </Sheet>
@@ -141,7 +155,9 @@ function HowSheet() {
   const go = useGo();
   return (
     <Sheet label="How MedVault works" onClose={() => go("/")}>
-      <How />
+      <Suspense fallback={<Loading />}>
+        <How />
+      </Suspense>
     </Sheet>
   );
 }
@@ -172,7 +188,12 @@ function Shell() {
   const loc = useLocation();
   const commands = useCommands();
   // The responder's page needs no account and stands on its own.
-  if (loc.pathname === "/sos") return <SosPage key={loc.hash} />;
+  if (loc.pathname === "/sos")
+    return (
+      <Suspense fallback={<div className="min-h-dvh" />}>
+        <SosPage key={loc.hash} />
+      </Suspense>
+    );
   if (!ready) return <div className="min-h-dvh" aria-busy="true" />;
   if (!user)
     return (
@@ -212,7 +233,9 @@ function Shell() {
         </button>
         <AccountMenu />
       </header>
-      <main className="mx-auto max-w-[88rem] px-4 pb-14 pt-4 sm:px-6">{home}</main>
+      <main className="mx-auto max-w-[88rem] px-4 pb-14 pt-4 sm:px-6">
+        <Suspense fallback={<Loading />}>{home}</Suspense>
+      </main>
       <footer className="mx-auto max-w-[88rem] px-4 pb-8 text-xs text-faint sm:px-6">
         Fictional people, real openly licensed scans. Not for real patient data without a security review.
         {DEMO && " This sandbox runs entirely in your browser and is saved only on this device."}

@@ -82,8 +82,12 @@ test("a patient lends a record for 15 minutes, the doctor opens it, and taking i
   await signOut(page);
 
   await signInAs(page, "Anitha Kumar");
-  for (const b of await page.getByRole("button", { name: "Take back" }).all()) await b.click();
-  await expect(page.getByRole("button", { name: "Take back" })).toHaveCount(0);
+  const takeBack = page.getByRole("button", { name: "Take back" });
+  await expect(takeBack).toHaveCount(2); // the seeded loan and the new one
+  await takeBack.first().click();
+  await expect(takeBack).toHaveCount(1);
+  await takeBack.first().click();
+  await expect(takeBack).toHaveCount(0);
   await page.getByRole("button", { name: /^Access trail for/ }).first().click();
   await expect(page.getByText("Taken back, key destroyed").first()).toBeVisible();
   await signOut(page);
