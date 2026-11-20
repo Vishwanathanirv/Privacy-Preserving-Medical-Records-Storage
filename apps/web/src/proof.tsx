@@ -145,7 +145,7 @@ export function BitExactProof({ meta, autorun = false }: { meta: RecordMeta; aut
               {[
                 [storedCanvas, "Stored", "with the record inside"],
                 [restoredCanvas, "Restored", "computed in this browser"],
-                [diffCanvas, `${run.rec.changedPixels.toLocaleString()} px`, `of ${px.toLocaleString()} carried bits`],
+                [diffCanvas, `${run.rec.changedPixels.toLocaleString()} px`, `of ${px.toLocaleString()} moved by the hiding`],
               ].map(([ref, t, d]) => (
                 <figure key={t as string}>
                   <div className="film overflow-hidden">

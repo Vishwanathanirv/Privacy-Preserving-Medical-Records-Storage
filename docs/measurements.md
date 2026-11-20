@@ -7,14 +7,14 @@ Images are real, openly licensed scans; sources, licences and checksums are in [
 
 | Image | Size | Bits | Payload | Bytes | PSNR (dB) | SSIM | Max change | Layers | Embed (ms) | Extract (ms) | Embed speed (Mpx/s) | Bit-exact |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Chest X-ray PA #1 | 1000×1000 | 8 | sealed record | 394 | 51.4 | 0.9948 | ±1 | 1 | 299 | 53 | 3.34 | ✓ pixels and payload |
-| Chest X-ray PA #1 | 1000×1000 | 8 | 8 KB | 8192 | 51.13 | 0.9944 | ±1 | 1 | 303 | 53 | 3.3 | ✓ pixels and payload |
-| Chest X-ray PA #1 | 1000×1000 | 8 | full first layer | 62484 | 49.58 | 0.9918 | ±2 | 1 | 242 | 54 | 4.13 | ✓ pixels and payload |
-| Chest X-ray PA #2 | 1000×1000 | 8 | sealed record | 394 | 47.72 | 0.9948 | ±1 | 1 | 48 | 53 | 21.05 | ✓ pixels and payload |
-| Chest X-ray PA #2 | 1000×1000 | 8 | 8 KB | 8192 | 47.44 | 0.9944 | ±1 | 1 | 48 | 52 | 20.64 | ✓ pixels and payload |
-| Chest X-ray PA #2 | 1000×1000 | 8 | full first layer | 63108 | 45.87 | 0.9917 | ±1 | 1 | 50 | 54 | 19.9 | ✓ pixels and payload |
-| Brain MRI T1 slice | 160×192 | 16 (10 used) | sealed record | 394 | 52.31 | 1 | ±4 | 1 | 52 | 3 | 0.59 | ✓ pixels and payload |
-| Brain MRI T1 slice | 160×192 | 16 (10 used) | full first layer | 1837 | 34.05 | 0.9998 | ±35 | 2 | 294 | 17 | 0.1 | ✓ pixels and payload |
+| Chest X-ray PA #1 | 1000×1000 | 8 | sealed record | 393 | 51.4 | 0.9948 | ±1 | 1 | 306 | 54 | 3.27 | ✓ pixels and payload |
+| Chest X-ray PA #1 | 1000×1000 | 8 | 8 KB | 8192 | 51.13 | 0.9944 | ±1 | 1 | 325 | 56 | 3.08 | ✓ pixels and payload |
+| Chest X-ray PA #1 | 1000×1000 | 8 | full first layer | 62484 | 49.58 | 0.9918 | ±1 | 1 | 248 | 57 | 4.03 | ✓ pixels and payload |
+| Chest X-ray PA #2 | 1000×1000 | 8 | sealed record | 393 | 47.72 | 0.9948 | ±1 | 1 | 57 | 67 | 17.43 | ✓ pixels and payload |
+| Chest X-ray PA #2 | 1000×1000 | 8 | 8 KB | 8192 | 47.44 | 0.9944 | ±1 | 1 | 47 | 54 | 21.47 | ✓ pixels and payload |
+| Chest X-ray PA #2 | 1000×1000 | 8 | full first layer | 63108 | 45.87 | 0.9917 | ±1 | 1 | 57 | 62 | 17.59 | ✓ pixels and payload |
+| Brain MRI T1 slice | 160×192 | 16 (10 used) | sealed record | 393 | 52.31 | 0.9967 | ±4 | 1 | 53 | 3 | 0.58 | ✓ pixels and payload |
+| Brain MRI T1 slice | 160×192 | 16 (10 used) | full first layer | 1837 | 34.05 | 0.8494 | ±35 | 2 | 255 | 15 | 0.12 | ✓ pixels and payload |
 
 PSNR is measured against each image's actual peak value (not the 65535 of a 16-bit container). Higher bit-depth scans use a wider expansion band per layer, so their largest change is bigger in grey levels but small relative to their range.
 "Bit-exact" means the SHA-256 of the recovered pixels equals the original's and the recovered payload equals the one hidden, in every run.
@@ -27,4 +27,4 @@ PSNR is measured against each image's actual peak value (not the 65535 of a 16-b
 | Chest X-ray PA #2 | 66430 | 243163 | 1.945 |
 | Brain MRI T1 slice | 1934 | 2780 | 0.724 |
 
-A sealed record (the clinical text, compressed and encrypted with AES-256-GCM) is 394 bytes here.
+A sealed record (the clinical text, compressed and encrypted with AES-256-GCM) is 393 bytes here.
