@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,14 +7,15 @@ import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import { z } from "zod";
-import { verifyChain } from "@medvault/core";
-import { Db, type Role } from "./db";
-import { COOKIE, hashPassword, loadKey, readSession, signSession, verifyPassword, type Session } from "./security";
-import { RecordInput } from "./schema";
+import { Db } from "./db";
+import { COOKIE, hashPassword, loadKey, readSession, signSession, verifyPassword } from "./security";
 import { DEMO_PASSWORD, seedDemo } from "./seed";
+import { Service, type Session } from "./service";
 import { TransparencyLog } from "./translog";
-import { Vault, VaultError } from "./vault";
+import { Vault } from "./vault";
+
+/** Verified against when an email is unknown, so a miss costs the same time as a wrong password. */
+const DUMMY_HASH = "scrypt$32768$AAAAAAAAAAAAAAAAAAAAAA$" + "A".repeat(86);
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -61,241 +61,45 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   });
 
   app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof z.ZodError) return reply.status(400).send({ error: err.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ") });
-    if (err instanceof VaultError) return reply.status(err.status).send({ error: err.message, stage: err.stage });
     const status = (err as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) app.log.error(err);
     return reply.status(status).send({ error: status >= 500 ? "Internal error" : (err as Error).message });
   });
 
-  const auth = (req: FastifyRequest, ...roles: Role[]): Session => {
-    if (!req.session) throw new HttpError(401, "Please sign in.");
-    if (roles.length && !roles.includes(req.session.role)) throw new HttpError(403, "Your role cannot do this.");
-    return req.session;
-  };
+  const service = new Service(db, vault, tlog, { hash: hashPassword, verify: (pw, stored) => verifyPassword(pw, stored ?? DUMMY_HASH) });
 
-  /** Patients see their own data; doctors only what a patient has consented to share. Admins never see clinical data. */
-  const canAccessPatient = (s: Session, patientId: string) => (s.role === "patient" && s.sub === patientId) || (s.role === "doctor" && db.hasGrant(patientId, s.sub));
-
-  const requireRecordAccess = (s: Session, recordId: string) => {
-    const r = db.getRecord(recordId);
-    if (!r || !canAccessPatient(s, r.patientId)) {
-      db.audit(s.sub, "record.denied", `record:${recordId}`, s.role);
-      throw new HttpError(404, "Record not found"); // 404, not 403: do not reveal that it exists
-    }
-    return r;
-  };
-
-  // ---------- auth ----------
-  app.post("/api/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
-    const { email, password } = z.object({ email: z.string().email().max(120), password: z.string().min(1).max(128) }).parse(req.body);
-    const u = db.findByEmail(email);
-    const ok = u ? await verifyPassword(password, u.passwordHash) : await verifyPassword(password, "scrypt$32768$AAAAAAAAAAAAAAAAAAAAAA$" + "A".repeat(86));
-    if (!u || !ok) {
-      db.audit(email.toLowerCase(), "auth.failed", "auth");
-      throw new HttpError(401, "Email or password is incorrect.");
-    }
-    reply.setCookie(COOKIE, await signSession(sessionKey, { sub: u.id, role: u.role, name: u.name }), { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 8 * 3600 });
-    db.audit(u.id, "auth.login", `user:${u.id}`);
-    return { user: { id: u.id, name: u.name, email: u.email, role: u.role } };
-  });
-
-  app.post("/api/auth/logout", async (req, reply) => {
-    if (req.session) db.audit(req.session.sub, "auth.logout", `user:${req.session.sub}`);
-    reply.clearCookie(COOKIE, { path: "/" });
-    return { ok: true };
-  });
-
-  app.get("/api/me", async (req) => {
-    const s = auth(req);
-    return { user: db.getUser(s.sub) };
-  });
-
-  app.get("/api/health", async () => ({ ok: true, ...db.counts() }));
-
-  // ---------- people ----------
-  app.get("/api/doctors", async (req) => {
-    auth(req, "patient", "admin");
-    return { doctors: db.listUsers("doctor").map(({ id, name, email }) => ({ id, name, email })) };
-  });
-
-  app.get("/api/patients", async (req) => {
-    const s = auth(req, "doctor", "patient");
-    return { patients: s.role === "doctor" ? db.patientsForDoctor(s.sub) : [{ ...db.getUser(s.sub)!, records: db.listRecords(s.sub).length }] };
-  });
-
-  app.get("/api/patients/:id", async (req) => {
-    const s = auth(req, "doctor", "patient");
-    const { id } = req.params as { id: string };
-    if (!canAccessPatient(s, id)) throw new HttpError(404, "Patient not found");
-    const p = db.getUser(id)!;
-    return { patient: { id: p.id, name: p.name, email: p.email }, records: db.listRecords(id) };
-  });
-
-  // ---------- consent ----------
-  app.get("/api/consent", async (req) => {
-    const s = auth(req, "patient");
-    return { grants: db.grantsForPatient(s.sub) };
-  });
-
-  app.put("/api/consent/:doctorId", async (req) => {
-    const s = auth(req, "patient");
-    const { doctorId } = req.params as { doctorId: string };
-    if (db.getUser(doctorId)?.role !== "doctor") throw new HttpError(404, "Doctor not found");
-    db.grant(s.sub, doctorId);
-    db.audit(s.sub, "consent.grant", `patient:${s.sub}`, `doctor:${doctorId}`);
-    return { grants: db.grantsForPatient(s.sub) };
-  });
-
-  app.delete("/api/consent/:doctorId", async (req) => {
-    const s = auth(req, "patient");
-    const { doctorId } = req.params as { doctorId: string };
-    if (db.revoke(s.sub, doctorId)) db.audit(s.sub, "consent.revoke", `patient:${s.sub}`, `doctor:${doctorId}`);
-    return { grants: db.grantsForPatient(s.sub) };
-  });
-
-  // ---------- records ----------
-  app.post("/api/patients/:id/records", { bodyLimit: 30 * 1024 * 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
-    const s = auth(req, "doctor");
-    const { id } = req.params as { id: string };
-    if (!db.hasGrant(id, s.sub)) throw new HttpError(404, "Patient not found");
-    let fields: Record<string, string> = {};
-    let scan: Uint8Array | undefined;
+  /** Hands every API call to the shared service and translates its result into HTTP. */
+  const handle = async (req: FastifyRequest, reply: FastifyReply) => {
+    const url = new URL(req.url, "http://localhost");
+    let body: unknown = req.body;
+    let file: Uint8Array | undefined;
     if (req.isMultipart()) {
+      const fields: Record<string, string> = {};
       for await (const part of req.parts()) {
         if (part.type === "file") {
           const buf = await part.toBuffer();
-          if (buf.length) scan = new Uint8Array(buf);
+          if (buf.length) file = new Uint8Array(buf);
         } else fields[part.fieldname] = String(part.value);
       }
-    } else fields = req.body as Record<string, string>;
-    const data = typeof fields.record === "string" ? JSON.parse(fields.record) : fields;
-    const rec = RecordInput.parse(data);
-    const meta = vault.create(id, { id: s.sub, name: s.name }, rec, scan);
-    db.audit(s.sub, "record.create", `record:${meta.id}`, `patient:${id}`);
-    return { record: meta };
-  });
-
-  app.get("/api/records/:id", async (req) => {
-    const s = auth(req, "doctor", "patient");
-    const { id } = req.params as { id: string };
-    requireRecordAccess(s, id);
-    const opened = vault.open(id);
-    db.audit(s.sub, "record.view", `record:${id}`, `patient:${opened.meta.patientId}`);
-    const { stegoPng: _s, wrappedKey: _w, ...meta } = opened.meta;
-    return { meta, record: opened.record, verification: opened.verification };
-  });
-
-  app.get("/api/records/:id/image/:variant", async (req, reply: FastifyReply) => {
-    const s = auth(req, "doctor", "patient");
-    const { id, variant } = z.object({ id: z.string(), variant: z.enum(["stego", "original", "diff"]) }).parse(req.params);
-    requireRecordAccess(s, id);
-    const png = vault.image(id, variant);
-    if (variant !== "stego") db.audit(s.sub, `image.${variant}`, `record:${id}`);
-    reply.header("content-type", "image/png").header("cache-control", "private, no-store");
-    if ((req.query as { download?: string }).download) reply.header("content-disposition", `attachment; filename="medvault-${id.slice(0, 8)}-${variant}.png"`);
-    return Buffer.from(png);
-  });
-
-  app.get("/api/records/:id/file/:kind", async (req, reply: FastifyReply) => {
-    const s = auth(req, "doctor", "patient");
-    const { id, kind } = z.object({ id: z.string(), kind: z.enum(["stored", "original"]) }).parse(req.params);
-    requireRecordAccess(s, id);
-    const f = vault.file(id, kind);
-    if (kind === "original") db.audit(s.sub, "file.original", `record:${id}`);
-    reply.header("content-type", f.type).header("cache-control", "private, no-store").header("content-disposition", `attachment; filename="${f.filename}"`);
-    return Buffer.from(f.bytes);
-  });
-
-  app.post("/api/records/:id/tamper-test", async (req) => {
-    const s = auth(req, "doctor", "patient");
-    const { id } = req.params as { id: string };
-    requireRecordAccess(s, id);
-    return vault.tamperTest(id);
-  });
-
-  /** Upload any PNG: if it carries a record the user may open, identify it and check its integrity. */
-  app.post("/api/verify", { bodyLimit: 30 * 1024 * 1024, config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req) => {
-    const s = auth(req, "doctor", "patient");
-    const file = await req.file();
-    if (!file) throw new HttpError(400, "Upload a PNG in the 'file' field.");
-    const png = new Uint8Array(await file.toBuffer());
-    const recordId = vault.identify(png);
-    requireRecordAccess(s, recordId);
-    const opened = vault.open(recordId, png);
-    db.audit(s.sub, "record.verify", `record:${recordId}`);
-    return { recordId, title: opened.meta.title, verification: opened.verification };
-  });
-
-  // ---------- audit and admin ----------
-  app.get("/api/audit", async (req) => {
-    const s = auth(req);
-    if (s.role === "admin") return { entries: db.auditRecent(300) };
-    if (s.role === "patient") {
-      const ids = db.listRecords(s.sub).map((r) => r.id);
-      return { entries: db.auditRecent(200, [`patient:${s.sub}`, ...ids]) };
+      body = fields;
     }
-    return { entries: db.auditRecent(200).filter((e) => e.actor === s.sub) };
-  });
-
-  app.get("/api/audit/verify", async (req) => {
-    auth(req, "admin");
-    const entries = db.auditAll();
-    return { ...verifyChain(entries), entries: entries.length, head: entries.at(-1)?.hash ?? null, transparency: tlog.audit() };
-  });
-
-  // ---------- transparency log (RFC 9162-style Merkle tree with signed heads) ----------
-  /** Which audit entries a user may see, and so request proofs for. */
-  const visibleTo = (s: Session) => {
-    if (s.role === "admin") return () => true;
-    if (s.role === "patient") {
-      const keys = [`patient:${s.sub}`, ...db.listRecords(s.sub).map((r) => r.id)];
-      return (e: { target: string }) => keys.some((k) => e.target.includes(k));
+    const r = await service.handle({ method: req.method, path: url.pathname, query: url.searchParams, session: req.session, body, file });
+    if (r.session) reply.setCookie(COOKIE, await signSession(sessionKey, r.session), { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 8 * 3600 });
+    else if (r.session === null) reply.clearCookie(COOKIE, { path: "/" });
+    reply.status(r.status);
+    if (r.file) {
+      reply.header("content-type", r.file.type).header("cache-control", "private, no-store");
+      if (r.file.filename) reply.header("content-disposition", `attachment; filename="${r.file.filename}"`);
+      return Buffer.from(r.file.bytes);
     }
-    return (e: { actor: string }) => e.actor === s.sub;
+    return r.data;
   };
 
-  app.get("/api/log/head", async (req) => {
-    auth(req);
-    return { head: tlog.head(), publicKey: tlog.publicKey, keyId: tlog.keyId };
-  });
-
-  app.get("/api/log/inclusion/:seq", async (req) => {
-    const s = auth(req);
-    const { seq } = z.object({ seq: z.coerce.number().int().min(1) }).parse(req.params);
-    const { size } = z.object({ size: z.coerce.number().int().min(1) }).parse(req.query);
-    const entry = db.auditAll()[seq - 1];
-    if (!entry || !visibleTo(s)(entry)) throw new HttpError(404, "Entry not found");
-    try {
-      return { entry, ...tlog.inclusion(seq, size) };
-    } catch (e) {
-      throw new HttpError(400, (e as Error).message);
-    }
-  });
-
-  app.get("/api/log/consistency", async (req) => {
-    auth(req);
-    const { from, to } = z.object({ from: z.coerce.number().int().min(1), to: z.coerce.number().int().min(1) }).parse(req.query);
-    try {
-      return tlog.consistency(from, to);
-    } catch (e) {
-      throw new HttpError(400, (e as Error).message);
-    }
-  });
-
-  app.get("/api/admin/users", async (req) => {
-    auth(req, "admin");
-    return { users: db.listUsers(), counts: db.counts() };
-  });
-
-  app.post("/api/admin/users", async (req) => {
-    const s = auth(req, "admin");
-    const b = z.object({ name: z.string().trim().min(2).max(80), email: z.string().email().max(120), role: z.enum(["doctor", "patient", "admin"]), password: z.string().min(10).max(128) }).parse(req.body);
-    if (db.findByEmail(b.email)) throw new HttpError(409, "That email is already registered.");
-    const u = db.createUser({ id: randomUUID(), email: b.email, name: b.name, role: b.role }, await hashPassword(b.password));
-    db.audit(s.sub, "user.create", `user:${u.id}`, b.role);
-    return { user: u };
-  });
+  const upload = { bodyLimit: 30 * 1024 * 1024 };
+  app.post("/api/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, handle);
+  app.post("/api/patients/:id/records", { ...upload, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, handle);
+  app.post("/api/verify", { ...upload, config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, handle);
+  app.route({ method: ["GET", "POST", "PUT", "DELETE"], url: "/api/*", handler: handle });
 
   const webDist = [resolve(process.cwd(), "apps/web/dist"), resolve(here, "../../web/dist")].find((p) => existsSync(join(p, "index.html")));
   if (webDist) {

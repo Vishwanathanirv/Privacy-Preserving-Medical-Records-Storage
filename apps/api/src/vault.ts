@@ -12,8 +12,10 @@ import {
   writePixels,
   type RemovedValue,
   decodePng,
+  decryptField,
   decryptRecord,
   differenceMap,
+  encryptField,
   embed,
   encodePng,
   encryptRecord,
@@ -26,6 +28,8 @@ import {
   type Gray,
 } from "@medvault/core";
 import type { RecordMeta, RecordStore, ScanInfo, StoredRecord } from "./types";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ClinicalRecord = {
   title: string;
@@ -51,7 +55,9 @@ function pack(recordId: string, ciphertext: Uint8Array): Uint8Array {
 function unpack(payload: Uint8Array): { recordId: string; ciphertext: Uint8Array } {
   if (payload.length < 6 || String.fromCharCode(...payload.subarray(0, 4)) !== "MVR1") throw new RdhError("Embedded data is not a MedVault record");
   const n = payload[4];
-  return { recordId: new TextDecoder().decode(payload.subarray(5, 5 + n)), ciphertext: payload.subarray(5 + n) };
+  const recordId = new TextDecoder().decode(payload.subarray(5, 5 + n));
+  if (!UUID.test(recordId)) throw new RdhError("Embedded data is not a MedVault record");
+  return { recordId, ciphertext: payload.subarray(5 + n) };
 }
 
 export class VaultError extends Error {
@@ -62,6 +68,30 @@ export class VaultError extends Error {
 
 export class Vault {
   constructor(private db: RecordStore, private kek: Uint8Array) {}
+
+  /** Titles are stored sealed under the master key, so the database holds no readable clinical text. */
+  private reveal<T extends RecordMeta>(r: T): T {
+    return { ...r, title: r.title.startsWith("enc1:") ? decryptField(this.kek, `title:${r.id}`, r.title) : r.title };
+  }
+
+  /** A record's metadata (title decrypted), without its file or key. */
+  meta(recordId: string): RecordMeta | null {
+    const r = this.db.getRecord(recordId);
+    if (!r) return null;
+    const { stegoPng: _s, wrappedKey: _w, ...meta } = this.reveal(r);
+    return meta;
+  }
+
+  /** A patient's records, newest first, titles decrypted. */
+  list(patientId: string): RecordMeta[] {
+    return this.db.listRecords(patientId).map((r) => this.reveal(r));
+  }
+
+  private stored(recordId: string): StoredRecord {
+    const r = this.db.getRecord(recordId);
+    if (!r) throw new VaultError(404, "Record not found");
+    return this.reveal(r);
+  }
 
   /**
    * Encrypts the record, hides it inside the scan and stores only the stego file and wrapped key.
@@ -125,7 +155,7 @@ export class Vault {
       stats: { ...result.stats, psnr: +psnr(cover, result.image).toFixed(2), ssim: +ssim(cover, result.image).toFixed(4), embedMs },
       scan: scanInfo,
     };
-    this.db.insertRecord(meta, stored, sealed.wrappedKey);
+    this.db.insertRecord({ ...meta, title: encryptField(this.kek, `title:${id}`, rec.title) }, stored, sealed.wrappedKey);
     return { ...meta, authorName: author.name };
   }
 
@@ -143,8 +173,7 @@ export class Vault {
    * and checks the restored scan (for DICOM, the whole rebuilt file) matches the original's hash.
    */
   open(recordId: string, stegoOverride?: Uint8Array) {
-    const r = this.db.getRecord(recordId);
-    if (!r) throw new VaultError(404, "Record not found");
+    const r = this.stored(recordId);
     const stored = stegoOverride ?? r.stegoPng;
     const fileIntact = sha256(stored) === r.stegoSha256;
     let extracted;
@@ -184,8 +213,7 @@ export class Vault {
 
   /** An 8-bit PNG for viewing: the stored scan, the restored scan, or a map of changed pixels. */
   image(recordId: string, variant: "stego" | "original" | "diff"): Uint8Array {
-    const r = this.db.getRecord(recordId);
-    if (!r) throw new VaultError(404, "Record not found");
+    const r = this.stored(recordId);
     const stego = this.pixels(r, r.stegoPng);
     const view = (g: Gray) => encodePng(toDisplay(g, r.scan?.window));
     if (variant === "stego") return r.scan?.format === "dicom" || stego.data instanceof Uint16Array ? view(stego) : r.stegoPng;
@@ -196,8 +224,7 @@ export class Vault {
 
   /** Files to download: the stored (stego, de-identified) file, or the restored original. */
   file(recordId: string, kind: "stored" | "original"): { bytes: Uint8Array; filename: string; type: string } {
-    const r = this.db.getRecord(recordId);
-    if (!r) throw new VaultError(404, "Record not found");
+    const r = this.stored(recordId);
     const dicom = r.scan?.format === "dicom";
     const ext = dicom ? "dcm" : "png";
     const type = dicom ? "application/dicom" : "image/png";
@@ -208,8 +235,7 @@ export class Vault {
 
   /** Demonstrates integrity protection: changes one pixel of a copy and tries to open it. */
   tamperTest(recordId: string) {
-    const r = this.db.getRecord(recordId);
-    if (!r) throw new VaultError(404, "Record not found");
+    const r = this.stored(recordId);
     const img = this.pixels(r, r.stegoPng);
     const y = Math.floor(img.height / 2);
     const x = Math.floor(img.width / 2);

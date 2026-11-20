@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { CryptoError, GENESIS, auditHash, decryptRecord, encryptRecord, rewrapKey, verifyChain, type AuditEntry } from "../src/crypto";
+import { CryptoError, GENESIS, auditHash, decryptField, decryptRecord, encryptField, encryptRecord, rewrapKey, verifyChain, type AuditEntry } from "../src/crypto";
 
 const kek = new Uint8Array(randomBytes(32));
 const record = { diagnosis: "Community-acquired pneumonia", medications: ["Amoxicillin 500 mg"], notes: "Review in 7 days" };
@@ -44,4 +44,15 @@ describe("audit chain", () => {
     expect(verifyChain(edited)).toEqual({ ok: false, brokenAt: 3 });
   });
   it("detects a deleted entry", () => expect(verifyChain([chain[0], ...chain.slice(2)]).ok).toBe(false));
+});
+
+describe("field encryption", () => {
+  it("seals a field so it only opens in its own context", () => {
+    const kek = new Uint8Array(randomBytes(32));
+    const sealed = encryptField(kek, "title:a", "Head CT");
+    expect(sealed).not.toContain("Head");
+    expect(decryptField(kek, "title:a", sealed)).toBe("Head CT");
+    expect(() => decryptField(kek, "title:b", sealed)).toThrow(CryptoError);
+    expect(encryptField(kek, "title:a", "Head CT")).not.toBe(sealed); // fresh nonce every time
+  });
 });

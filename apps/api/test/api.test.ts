@@ -82,18 +82,42 @@ describe("consent and access control", () => {
   });
 });
 
+describe("input hardening", () => {
+  it("rejects ids that are not UUIDs, so a crafted id cannot plant entries in someone else's activity feed", async () => {
+    const arjun = await login("arjun@medvault.dev");
+    const anithaId = db.findByEmail("anitha@medvault.dev")!.id;
+    const before = db.auditAll().length;
+    const r = await app.inject({ url: `/api/records/patient:${anithaId}`, headers: as(arjun.cookie) });
+    expect(r.statusCode).toBe(400);
+    expect(db.auditAll().length).toBe(before);
+    expect((await app.inject({ method: "PUT", url: "/api/consent/not-a-doctor", headers: as((await login("anitha@medvault.dev")).cookie) })).statusCode).toBe(400);
+  });
+
+  it("answers malformed JSON with 400, not a server error", async () => {
+    const meera = await login("meera@medvault.dev");
+    const pid = db.findByEmail("anitha@medvault.dev")!.id;
+    const mp = multipart({ record: "{not json" });
+    const r = await app.inject({ method: "POST", url: `/api/patients/${pid}/records`, payload: mp.payload, headers: { ...mp.headers, ...as(meera.cookie) } });
+    expect(r.statusCode).toBe(400);
+  });
+});
+
 describe("records", () => {
   it("creates a record from an uploaded scan and never stores plaintext", async () => {
     const meera = await login("meera@medvault.dev");
     const pid = db.findByEmail("anitha@medvault.dev")!.id;
     const scan = phantom(256, 77);
     const secret = "Hypertension, stage 1; unique-marker-8812";
-    const mp = multipart({ record: JSON.stringify({ title: "Clinic visit", diagnosis: secret, medications: ["Amlodipine 5 mg"] }) }, { name: "scan.png", data: encodePng(scan) });
+    const mp = multipart({ record: JSON.stringify({ title: "Clinic visit title-marker-5521", diagnosis: secret, medications: ["Amlodipine 5 mg"] }) }, { name: "scan.png", data: encodePng(scan) });
     const r = await app.inject({ method: "POST", url: `/api/patients/${pid}/records`, payload: mp.payload, headers: { ...mp.headers, ...as(meera.cookie) } });
     expect(r.statusCode).toBe(200);
     const id = r.json().record.id;
     const raw = JSON.stringify(db.db.prepare("SELECT * FROM records WHERE id = ?").get(id), (_k, v) => (v instanceof Uint8Array ? Buffer.from(v).toString("latin1") : v));
     expect(raw).not.toContain("unique-marker-8812");
+    // Titles are sealed too, yet lists still show them to people allowed to see them.
+    expect(raw).not.toContain("title-marker-5521");
+    const listed = json(await app.inject({ url: `/api/patients/${pid}`, headers: as(meera.cookie) })).records;
+    expect(listed.map((x: { title: string }) => x.title)).toContain("Clinic visit title-marker-5521");
     const original = await app.inject({ url: `/api/records/${id}/image/original`, headers: as(meera.cookie) });
     expect(pixelHash(decodePng(original.rawPayload).image)).toBe(pixelHash(scan));
     expect(json(await app.inject({ url: `/api/records/${id}`, headers: as(meera.cookie) })).record.diagnosis).toBe(secret);

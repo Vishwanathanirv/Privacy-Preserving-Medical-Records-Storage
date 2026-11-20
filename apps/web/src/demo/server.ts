@@ -1,18 +1,19 @@
 import { scryptAsync } from "@noble/hashes/scrypt.js";
 import { bytesToHex, randomBytes } from "@noble/hashes/utils.js";
-import { GENESIS, auditHash, verifyChain, type AuditEntry } from "@medvault/core";
+import { GENESIS, auditHash, fromBase64, toBase64, type AuditEntry } from "@medvault/core";
 import type { RecordMeta, Role, User } from "../../../api/src/types";
-import { RecordInput } from "../../../api/src/schema";
 import { DEMO_PASSWORD, seedDemo } from "../../../api/src/seed";
+import { Service, type Result, type Session, type Store } from "../../../api/src/service";
 import { TransparencyLog } from "../../../api/src/translog";
-import { Vault, VaultError } from "../../../api/src/vault";
+import { Vault } from "../../../api/src/vault";
 
 /**
- * In-browser version of the MedVault server, used for the hosted demo. Record encryption,
- * reversible embedding, verification, consent checks and the hash-chained audit log are the
- * same code the Node server runs (the Vault class is imported from the API). Only storage is
- * different: an in-memory database saved to this browser's localStorage, so each visitor gets a
- * private sandbox and nothing leaves the machine.
+ * In-browser version of the MedVault server, used for the hosted demo. Every API call goes
+ * through the same Service the Node server runs (access control, consent, auditing, the Vault
+ * and the transparency log are shared code). Only storage is different: an in-memory database
+ * saved to this browser's localStorage, so each visitor gets a private sandbox and nothing
+ * leaves the machine. Its master key lives in that same storage, which is fine for a sandbox and
+ * is exactly why a real deployment keeps keys on the server.
  */
 
 type StoredRecord = Omit<RecordMeta, "authorName"> & { stegoPng: Uint8Array; wrappedKey: Uint8Array };
@@ -20,15 +21,9 @@ type StoredUser = User & { passwordHash: string };
 type Grant = { patientId: string; doctorId: string; grantedAt: number };
 type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; audit: AuditEntry[]; session: string | null };
 
-const STORAGE_KEY = "medvault-demo-v3";
-const SCRYPT = { N: 16384, r: 8, p: 1 };
-
-const b64 = (b: Uint8Array) => {
-  let s = "";
-  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
-  return btoa(s);
-};
-const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const STORAGE_KEY = "medvault-demo-v4";
+const SCRYPT = { N: 32768, r: 8, p: 1 };
+const DUMMY_HASH = `scrypt$${SCRYPT.N}$${"00".repeat(16)}$${"00".repeat(32)}`;
 
 async function hashPassword(pw: string) {
   const salt = randomBytes(16);
@@ -37,7 +32,8 @@ async function hashPassword(pw: string) {
 }
 
 async function verifyPassword(pw: string, stored: string) {
-  const [, n, salt, hash] = stored.split("$");
+  const [algo, n, salt, hash] = stored.split("$");
+  if (algo !== "scrypt" || !salt || !hash) return false;
   const salted = Uint8Array.from(salt.match(/../g)!.map((h) => parseInt(h, 16)));
   const h = bytesToHex(await scryptAsync(pw, salted, { N: Number(n), r: 8, p: 1, dkLen: 32 }));
   let diff = h.length ^ hash.length;
@@ -46,7 +42,7 @@ async function verifyPassword(pw: string, stored: string) {
 }
 
 /** Implements the same methods as the server's SQLite Db class, over plain arrays. */
-class MemoryDb {
+class MemoryDb implements Store {
   constructor(public s: State, private save: () => void) {}
 
   createUser(u: Omit<User, "createdAt">, passwordHash: string): User {
@@ -141,18 +137,11 @@ class MemoryDb {
   }
 }
 
-class HttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
-
 type Reply = { status: number; data: unknown };
 
 class DemoServer {
   private db!: MemoryDb;
-  private vault!: Vault;
-  private tlog!: TransparencyLog;
+  private service!: Service;
   readonly ready: Promise<void>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private flushOnExit = false;
@@ -163,13 +152,14 @@ class DemoServer {
 
   private async boot() {
     const saved = this.load();
-    const state: State = saved ?? { kek: b64(randomBytes(32)), logKey: b64(randomBytes(32)), users: [], records: [], grants: [], audit: [], session: null };
+    const state: State = saved ?? { kek: toBase64(randomBytes(32)), logKey: toBase64(randomBytes(32)), users: [], records: [], grants: [], audit: [], session: null };
     this.db = new MemoryDb(state, () => this.scheduleSave());
-    this.vault = new Vault(this.db, unb64(state.kek));
-    this.tlog = new TransparencyLog(() => this.db.auditAll(), unb64(state.logKey));
+    const vault = new Vault(this.db, fromBase64(state.kek));
+    const tlog = new TransparencyLog(() => this.db.auditAll(), fromBase64(state.logKey));
+    this.service = new Service(this.db, vault, tlog, { hash: hashPassword, verify: (pw, stored) => verifyPassword(pw, stored ?? DUMMY_HASH) });
     if (!saved) {
       await new Promise((r) => setTimeout(r, 0));
-      seedDemo(this.db, this.vault, await hashPassword(DEMO_PASSWORD));
+      seedDemo(this.db, vault, await hashPassword(DEMO_PASSWORD));
       this.persist();
     }
   }
@@ -179,7 +169,7 @@ class DemoServer {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const s = JSON.parse(raw);
-      s.records = s.records.map((r: StoredRecord & { stegoPng: string; wrappedKey: string }) => ({ ...r, stegoPng: unb64(r.stegoPng), wrappedKey: unb64(r.wrappedKey) }));
+      s.records = s.records.map((r: StoredRecord & { stegoPng: string; wrappedKey: string }) => ({ ...r, stegoPng: fromBase64(r.stegoPng), wrappedKey: fromBase64(r.wrappedKey) }));
       return s as State;
     } catch {
       return null;
@@ -209,7 +199,7 @@ class DemoServer {
   private persist() {
     try {
       const s = this.db.s;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, records: s.records.map((r) => ({ ...r, stegoPng: b64(r.stegoPng), wrappedKey: b64(r.wrappedKey) })) }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, records: s.records.map((r) => ({ ...r, stegoPng: toBase64(r.stegoPng), wrappedKey: toBase64(r.wrappedKey) })) }));
     } catch {
       // Storage full or unavailable (private window): the sandbox keeps working in memory.
     }
@@ -225,232 +215,51 @@ class DemoServer {
     location.assign("/");
   }
 
-  private get session(): User | null {
-    return this.db.s.session ? this.db.getUser(this.db.s.session) : null;
+  private get session(): Session | null {
+    const u = this.db.s.session ? this.db.getUser(this.db.s.session) : null;
+    return u ? { sub: u.id, role: u.role, name: u.name } : null;
   }
 
-  private auth(...roles: Role[]): User {
-    const s = this.session;
-    if (!s) throw new HttpError(401, "Please sign in.");
-    if (roles.length && !roles.includes(s.role)) throw new HttpError(403, "Your role cannot do this.");
-    return s;
-  }
-
-  private canAccessPatient(s: User, patientId: string) {
-    return (s.role === "patient" && s.id === patientId) || (s.role === "doctor" && this.db.hasGrant(patientId, s.id));
-  }
-
-  private requireRecordAccess(s: User, recordId: string) {
-    const r = this.db.getRecord(recordId);
-    if (!r || !this.canAccessPatient(s, r.patientId)) {
-      this.db.audit(s.id, "record.denied", `record:${recordId}`, s.role);
-      throw new HttpError(404, "Record not found");
+  /** Runs one API call through the shared service, as the signed-in demo user. */
+  async call(method: string, url: string, body: unknown): Promise<Result> {
+    await this.ready;
+    const u = new URL(url, "http://demo.local");
+    let file: Uint8Array | undefined;
+    if (body instanceof FormData) {
+      const fields: Record<string, string> = {};
+      for (const [k, v] of body.entries()) {
+        if (typeof v === "string") fields[k] = v;
+        else if (v.size) file = new Uint8Array(await v.arrayBuffer());
+      }
+      body = fields;
+    }
+    // Let the UI paint before long cryptographic work blocks the thread.
+    if (file) await new Promise((r) => setTimeout(r, 0));
+    let r: Result;
+    try {
+      r = await this.service.handle({ method, path: u.pathname, query: u.searchParams, session: this.session, body, file });
+    } catch (e) {
+      console.error(e);
+      return { status: 500, data: { error: "Internal error" } };
+    }
+    if (r.session !== undefined) {
+      this.db.s.session = r.session?.sub ?? null;
+      // Who is signed in must never lag behind: a reload right after sign-out must not bring it back.
+      this.saveNow();
     }
     return r;
   }
 
   async handle(method: string, url: string, body: unknown): Promise<Reply> {
-    await this.ready;
-    try {
-      return { status: 200, data: await this.route(method, url, body) };
-    } catch (e) {
-      if ((e as Error).name === "ZodError") {
-        const issues = (e as unknown as { issues: { path: (string | number)[]; message: string }[] }).issues;
-        return { status: 400, data: { error: issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ") } };
-      }
-      if (e instanceof VaultError) return { status: e.status, data: { error: e.message, stage: e.stage } };
-      if (e instanceof HttpError) return { status: e.status, data: { error: e.message } };
-      console.error(e);
-      return { status: 500, data: { error: "Internal error" } };
-    }
+    const r = await this.call(method, url, body);
+    return { status: r.status, data: r.data };
   }
 
-  /** PNG bytes for an image endpoint, with the same access checks and audit entries as the server. */
-  async image(recordId: string, variant: "stego" | "original" | "diff"): Promise<Uint8Array> {
-    await this.ready;
-    const s = this.auth("doctor", "patient");
-    this.requireRecordAccess(s, recordId);
-    const png = this.vault.image(recordId, variant);
-    if (variant !== "stego") this.db.audit(s.id, `image.${variant}`, `record:${recordId}`);
-    return png;
-  }
-
-  /** A record's file for download (stored stego file, or the rebuilt original), with the server's checks. */
-  async file(recordId: string, kind: "stored" | "original") {
-    await this.ready;
-    const s = this.auth("doctor", "patient");
-    this.requireRecordAccess(s, recordId);
-    const f = this.vault.file(recordId, kind);
-    if (kind === "original") this.db.audit(s.id, "file.original", `record:${recordId}`);
-    return f;
-  }
-
-  private async route(method: string, url: string, body: unknown): Promise<unknown> {
-    const p = new URL(url, "http://demo.local").pathname;
-    const db = this.db;
-    let m: RegExpMatchArray | null;
-
-    // ---------- auth ----------
-    if (method === "POST" && p === "/api/auth/login") {
-      const { email = "", password = "" } = (body ?? {}) as { email?: string; password?: string };
-      if (!/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, "email: Invalid email");
-      const u = db.findByEmail(email);
-      if (!u || !(await verifyPassword(password, u.passwordHash))) {
-        db.audit(email.toLowerCase(), "auth.failed", "auth");
-        throw new HttpError(401, "Email or password is incorrect.");
-      }
-      db.s.session = u.id;
-      db.audit(u.id, "auth.login", `user:${u.id}`);
-      this.saveNow(); // who is signed in must never lag behind
-      return { user: { id: u.id, name: u.name, email: u.email, role: u.role } };
-    }
-    if (method === "POST" && p === "/api/auth/logout") {
-      if (this.session) db.audit(this.session.id, "auth.logout", `user:${this.session.id}`);
-      db.s.session = null;
-      // Saved at once: a reload right after signing out must not bring the session back.
-      this.saveNow();
-      return { ok: true };
-    }
-    if (method === "GET" && p === "/api/me") return { user: this.auth() };
-    if (method === "GET" && p === "/api/health") return { ok: true, ...db.counts(), browser: true };
-
-    // ---------- people ----------
-    if (method === "GET" && p === "/api/doctors") {
-      this.auth("patient", "admin");
-      return { doctors: db.listUsers("doctor").map(({ id, name, email }) => ({ id, name, email })) };
-    }
-    if (method === "GET" && p === "/api/patients") {
-      const s = this.auth("doctor", "patient");
-      return { patients: s.role === "doctor" ? db.patientsForDoctor(s.id) : [{ ...db.getUser(s.id)!, records: db.listRecords(s.id).length }] };
-    }
-    if ((m = p.match(/^\/api\/patients\/([^/]+)$/)) && method === "GET") {
-      const s = this.auth("doctor", "patient");
-      if (!this.canAccessPatient(s, m[1])) throw new HttpError(404, "Patient not found");
-      const u = db.getUser(m[1])!;
-      return { patient: { id: u.id, name: u.name, email: u.email }, records: db.listRecords(m[1]) };
-    }
-
-    // ---------- consent ----------
-    if (method === "GET" && p === "/api/consent") return { grants: db.grantsForPatient(this.auth("patient").id) };
-    if ((m = p.match(/^\/api\/consent\/([^/]+)$/))) {
-      const s = this.auth("patient");
-      if (method === "PUT") {
-        if (db.getUser(m[1])?.role !== "doctor") throw new HttpError(404, "Doctor not found");
-        db.grant(s.id, m[1]);
-        db.audit(s.id, "consent.grant", `patient:${s.id}`, `doctor:${m[1]}`);
-      } else if (method === "DELETE") {
-        if (db.revoke(s.id, m[1])) db.audit(s.id, "consent.revoke", `patient:${s.id}`, `doctor:${m[1]}`);
-      }
-      return { grants: db.grantsForPatient(s.id) };
-    }
-
-    // ---------- records ----------
-    if ((m = p.match(/^\/api\/patients\/([^/]+)\/records$/)) && method === "POST") {
-      const s = this.auth("doctor");
-      if (!db.hasGrant(m[1], s.id)) throw new HttpError(404, "Patient not found");
-      let fields: Record<string, unknown> = (body ?? {}) as Record<string, unknown>;
-      let scan: Uint8Array | undefined;
-      if (body instanceof FormData) {
-        fields = {};
-        for (const [k, v] of body.entries()) {
-          if (typeof v === "string") fields[k] = v;
-          else if (v.size) {
-            if (v.size > 25 * 1024 * 1024) throw new HttpError(413, "File is larger than 25 MB.");
-            scan = new Uint8Array(await v.arrayBuffer());
-          }
-        }
-      }
-      const data = typeof fields.record === "string" ? JSON.parse(fields.record) : fields;
-      const rec = RecordInput.parse(data);
-      await new Promise((r) => setTimeout(r, 0));
-      const meta = this.vault.create(m[1], { id: s.id, name: s.name }, rec, scan);
-      db.audit(s.id, "record.create", `record:${meta.id}`, `patient:${m[1]}`);
-      return { record: meta };
-    }
-    if ((m = p.match(/^\/api\/records\/([^/]+)$/)) && method === "GET") {
-      const s = this.auth("doctor", "patient");
-      this.requireRecordAccess(s, m[1]);
-      const opened = this.vault.open(m[1]);
-      db.audit(s.id, "record.view", `record:${m[1]}`, `patient:${opened.meta.patientId}`);
-      const { stegoPng: _s, wrappedKey: _w, ...meta } = opened.meta;
-      return { meta, record: opened.record, verification: opened.verification };
-    }
-    if ((m = p.match(/^\/api\/records\/([^/]+)\/tamper-test$/)) && method === "POST") {
-      const s = this.auth("doctor", "patient");
-      this.requireRecordAccess(s, m[1]);
-      return this.vault.tamperTest(m[1]);
-    }
-    if (method === "POST" && p === "/api/verify") {
-      const s = this.auth("doctor", "patient");
-      const file = body instanceof FormData ? body.get("file") : null;
-      if (!(file instanceof Blob)) throw new HttpError(400, "Upload a PNG in the 'file' field.");
-      const png = new Uint8Array(await file.arrayBuffer());
-      const recordId = this.vault.identify(png);
-      this.requireRecordAccess(s, recordId);
-      const opened = this.vault.open(recordId, png);
-      db.audit(s.id, "record.verify", `record:${recordId}`);
-      return { recordId, title: opened.meta.title, verification: opened.verification };
-    }
-
-    // ---------- audit and admin ----------
-    if (method === "GET" && p === "/api/audit") {
-      const s = this.auth();
-      if (s.role === "admin") return { entries: db.auditRecent(300) };
-      if (s.role === "patient") return { entries: db.auditRecent(200, [`patient:${s.id}`, ...db.listRecords(s.id).map((r) => r.id)]) };
-      return { entries: db.auditRecent(200).filter((e) => e.actor === s.id) };
-    }
-    if (method === "GET" && p === "/api/audit/verify") {
-      this.auth("admin");
-      const entries = db.auditAll();
-      return { ...verifyChain(entries), entries: entries.length, head: entries.at(-1)?.hash ?? null, transparency: this.tlog.audit() };
-    }
-    if (method === "GET" && p === "/api/log/head") {
-      this.auth();
-      return { head: this.tlog.head(), publicKey: this.tlog.publicKey, keyId: this.tlog.keyId };
-    }
-    if ((m = p.match(/^\/api\/log\/inclusion\/(\d+)$/)) && method === "GET") {
-      const s = this.auth();
-      const seq = Number(m[1]);
-      const size = Number(new URL(url, "http://demo.local").searchParams.get("size"));
-      const entry = db.auditAll()[seq - 1];
-      const visible =
-        s.role === "admin" ||
-        (s.role === "patient" && entry && [`patient:${s.id}`, ...db.listRecords(s.id).map((r) => r.id)].some((k) => entry.target.includes(k))) ||
-        (s.role === "doctor" && entry?.actor === s.id);
-      if (!entry || !visible) throw new HttpError(404, "Entry not found");
-      try {
-        return { entry, ...this.tlog.inclusion(seq, size) };
-      } catch (e) {
-        throw new HttpError(400, (e as Error).message);
-      }
-    }
-    if (method === "GET" && p === "/api/log/consistency") {
-      this.auth();
-      const q = new URL(url, "http://demo.local").searchParams;
-      try {
-        return this.tlog.consistency(Number(q.get("from")), Number(q.get("to")));
-      } catch (e) {
-        throw new HttpError(400, (e as Error).message);
-      }
-    }
-    if (method === "GET" && p === "/api/admin/users") {
-      this.auth("admin");
-      return { users: db.listUsers(), counts: db.counts() };
-    }
-    if (method === "POST" && p === "/api/admin/users") {
-      const s = this.auth("admin");
-      const b = (body ?? {}) as { name?: string; email?: string; role?: Role; password?: string };
-      const name = (b.name ?? "").trim();
-      if (name.length < 2 || name.length > 80) throw new HttpError(400, "name: must be 2 to 80 characters");
-      if (!/^\S+@\S+\.\S+$/.test(b.email ?? "")) throw new HttpError(400, "email: Invalid email");
-      if (!["doctor", "patient", "admin"].includes(b.role ?? "")) throw new HttpError(400, "role: invalid role");
-      if ((b.password ?? "").length < 10) throw new HttpError(400, "password: at least 10 characters");
-      if (db.findByEmail(b.email!)) throw new HttpError(409, "That email is already registered.");
-      const u = db.createUser({ id: crypto.randomUUID(), email: b.email!, name, role: b.role! }, await hashPassword(b.password!));
-      db.audit(s.id, "user.create", `user:${u.id}`, b.role!);
-      return { user: u };
-    }
-    throw new HttpError(404, "Not found");
+  /** Bytes of an image or file endpoint, with the same access checks and audit entries as the server. */
+  async bytes(url: string): Promise<{ bytes: Uint8Array; type: string; filename?: string }> {
+    const r = await this.call("GET", url, undefined);
+    if (!r.file) throw new Error((r.data as { error?: string } | undefined)?.error ?? `Request failed (${r.status})`);
+    return r.file;
   }
 }
 

@@ -110,8 +110,8 @@ export function useRecordImage(recordId: string, variant: ImageVariant) {
     let made: string | null = null;
     let live = true;
     void import("./demo/server")
-      .then(({ demo }) => demo.image(recordId, variant))
-      .then((png) => {
+      .then(({ demo }) => demo.bytes(path))
+      .then(({ bytes: png }) => {
         if (!live) return;
         made = URL.createObjectURL(new Blob([png as Uint8Array<ArrayBuffer>], { type: "image/png" }));
         setUrl(made);
@@ -125,18 +125,30 @@ export function useRecordImage(recordId: string, variant: ImageVariant) {
   return url;
 }
 
-/** Saves a record's file: the stored (stego, de-identified) one, or the restored original. */
-export async function downloadRecordFile(recordId: string, kind: "stored" | "original") {
-  if (!DEMO) {
-    location.assign(`/api/records/${recordId}/file/${kind}`);
-    return;
+/** Raw bytes of a binary endpoint (an image or a record file), from the server or the in-browser demo. */
+export async function fetchBytes(path: string): Promise<{ bytes: Uint8Array; type: string; filename?: string }> {
+  if (DEMO) {
+    const { demo } = await import("./demo/server");
+    return demo.bytes(path);
   }
-  const { demo } = await import("./demo/server");
-  const f = await demo.file(recordId, kind);
-  const url = URL.createObjectURL(new Blob([f.bytes as Uint8Array<ArrayBuffer>], { type: f.type }));
+  const res = await fetch(path, { credentials: "same-origin" });
+  if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `Request failed (${res.status})`);
+  const name = res.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1];
+  return { bytes: new Uint8Array(await res.arrayBuffer()), type: res.headers.get("content-type") ?? "application/octet-stream", filename: name };
+}
+
+/** Saves bytes as a file on the visitor's device. */
+export function saveFile(bytes: Uint8Array, type: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = f.filename;
+  a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Saves a record's file: the stored (stego, de-identified) one, or the restored original. */
+export async function downloadRecordFile(recordId: string, kind: "stored" | "original") {
+  const f = await fetchBytes(`/api/records/${recordId}/file/${kind}`);
+  saveFile(f.bytes, f.type, f.filename ?? `medvault-${recordId.slice(0, 8)}-${kind}`);
 }

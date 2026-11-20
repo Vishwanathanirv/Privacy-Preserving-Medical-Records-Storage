@@ -75,6 +75,27 @@ export function rewrapKey(oldKek: Uint8Array, newKek: Uint8Array, recordId: stri
   }
 }
 
+/**
+ * Seals a short text field (such as a record title, which lists need without opening the record)
+ * under the master key, bound to `context` so it cannot be swapped onto another row.
+ */
+export function encryptField(kek: Uint8Array, context: string, text: string): string {
+  return `enc1:${toBase64(seal(kek, enc.encode(text), `field:${context}`))}`;
+}
+
+export function decryptField(kek: Uint8Array, context: string, sealed: string): string {
+  if (!sealed.startsWith("enc1:")) throw new CryptoError("Field is not encrypted");
+  return dec.decode(open(kek, fromBase64(sealed.slice(5)), `field:${context}`));
+}
+
+export function toBase64(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+export const fromBase64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
 // ---------- tamper-evident audit chain ----------
 
 export type AuditEntry = { seq: number; ts: number; actor: string; action: string; target: string; detail: string; prevHash: string; hash: string };

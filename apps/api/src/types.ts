@@ -34,6 +34,7 @@ export type StoredRecord = RecordMeta & { stegoPng: Uint8Array; wrappedKey: Uint
 export interface RecordStore {
   getRecord(id: string): StoredRecord | null;
   insertRecord(m: Omit<RecordMeta, "authorName">, stegoPng: Uint8Array, wrappedKey: Uint8Array): void;
+  listRecords(patientId: string): RecordMeta[];
 }
 
 /** Storage the demo seeder needs. */
