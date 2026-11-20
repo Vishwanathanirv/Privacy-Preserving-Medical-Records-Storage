@@ -1,10 +1,36 @@
 import { checkGrowth, fetchHead, type GrowthCheck, type HeadCheck } from "../translog";
 import { useEffect, useState } from "react";
 import { ACTIONS, api, date, short, useApi, type AuditEntry, type User } from "../lib";
-import { Avatar, Notice, PageHeader, Panel } from "../ui";
+import { Avatar, Notice } from "../ui";
 
-export function Users() {
-  const { data, reload } = useApi<{ users: User[]; counts: Record<string, number> }>("/api/admin/users");
+type Verify = { ok: boolean; brokenAt: number | null; entries: number; head: string | null; transparency?: { headsChecked: number; firstBrokenHead: { size: number } | null } };
+
+/**
+ * The administrator's one screen, a ledger: the people on the left, and the audit log as what it
+ * is, a chain of blocks each holding the hash of the one before. Admins can check every link and
+ * the signed head, and cannot open a single record.
+ */
+export function AdminHome() {
+  const users = useApi<{ users: User[]; counts: Record<string, number> }>("/api/admin/users");
+  const c = users.data?.counts;
+  return (
+    <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+      <div className="min-w-0">
+        <p className="eyebrow">Run the vault</p>
+        <h1 className="display mt-2 text-[clamp(2.4rem,6vw,3.6rem)]">The ledger</h1>
+        <p className="mt-3 leading-relaxed text-muted">{c ? `${c.users} people, ${c.records} sealed records, ${c.auditEntries} entries in the signed log.` : <span className="skeleton inline-block h-4 w-56 align-middle" />}</p>
+        <p className="mt-4 rounded-[16px] border border-line bg-panel p-3.5 text-sm leading-relaxed text-muted">
+          Separation of duties: you manage people and can check every entry, but <b className="text-ink">cannot open a single record</b>. That takes a patient's consent.
+        </p>
+        <People data={users.data?.users} reload={users.reload} />
+      </div>
+      <Chain />
+    </div>
+  );
+}
+
+function People({ data, reload }: { data?: User[]; reload: () => Promise<void> }) {
+  const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ name: "", email: "", role: "doctor", password: "" });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -14,6 +40,7 @@ export function Users() {
       await api("/api/admin/users", { method: "POST", json: f });
       setMsg({ ok: true, text: `${f.name} can now sign in.` });
       setF({ name: "", email: "", role: "doctor", password: "" });
+      setAdding(false);
       void reload();
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
@@ -21,57 +48,57 @@ export function Users() {
   }
 
   return (
-    <>
-      <PageHeader title="Run the vault" sub="Administrators manage accounts and check the audit log, but cannot open medical records. That needs a patient's consent." />
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {Object.entries(data?.counts ?? {}).map(([k, v]) => (
-          <div key={k} className="panel !rounded-[20px] p-4">
-            <div className="label">{k.replace(/([A-Z])/g, " $1")}</div>
-            <div className="mt-1.5 text-2xl font-semibold tabular-nums">{v}</div>
+    <section className="mt-8" aria-labelledby="h-people">
+      <div className="flex items-center justify-between">
+        <h2 id="h-people" className="text-[1.2rem] font-bold tracking-tight">
+          People
+        </h2>
+        <button className="btn h-8 px-3 text-[13px]" onClick={() => setAdding(!adding)} aria-expanded={adding}>
+          {adding ? "Cancel" : "Add a person"}
+        </button>
+      </div>
+      {adding && (
+        <form onSubmit={create} className="fade mt-3 space-y-2.5 rounded-[18px] border border-line bg-panel p-3.5">
+          <input className="field" placeholder="Full name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required aria-label="Full name" />
+          <input className="field" type="email" placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required aria-label="Email" />
+          <div className="flex gap-1.5" role="radiogroup" aria-label="Role">
+            {["doctor", "patient", "admin"].map((r) => (
+              <button key={r} type="button" role="radio" aria-checked={f.role === r} onClick={() => setF({ ...f, role: r })} className={`h-9 flex-1 rounded-full border text-[13px] font-semibold capitalize ${f.role === r ? "border-accent bg-accent-soft text-accent" : "border-line-2 text-muted"}`}>
+                {r}
+              </button>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-        <Panel title="Accounts">
-          <table className="w-full text-sm">
-            <tbody>
-              {(data?.users ?? []).map((u) => (
-                <tr key={u.id} className="border-t border-line first:border-0">
-                  <td className="px-5 py-3 font-medium">
-                    <span className="flex items-center gap-3">
-                      <Avatar name={u.name} size={32} />
-                      {u.name}
-                    </span>
-                  </td>
-                  <td className="hidden px-2 py-3 text-muted sm:table-cell">{u.email}</td>
-                  <td className="px-5 py-3 text-right">
-                    <span className="rounded-full bg-panel-2 px-2.5 py-0.5 text-xs font-semibold capitalize">{u.role}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-        <Panel title="Add a user">
-          <form onSubmit={create} className="space-y-3 px-5 pb-5 pt-3">
-            <input className="field" placeholder="Full name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required aria-label="Full name" />
-            <input className="field" type="email" placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required aria-label="Email" />
-            <select className="field" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} aria-label="Role">
-              <option value="doctor">Doctor</option>
-              <option value="patient">Patient</option>
-              <option value="admin">Admin</option>
-            </select>
-            <input className="field" type="password" placeholder="Temporary password (10+ characters)" minLength={10} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required aria-label="Password" />
-            <button className="btn btn-accent w-full">Create user</button>
-            {msg && <Notice tone={msg.ok ? "ok" : "bad"}>{msg.text}</Notice>}
-          </form>
-        </Panel>
-      </div>
-    </>
+          <input className="field" type="password" placeholder="Temporary password (10+ characters)" minLength={10} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required aria-label="Password" />
+          <button className="btn btn-accent w-full">Create</button>
+        </form>
+      )}
+      {msg && (
+        <div className="mt-3">
+          <Notice tone={msg.ok ? "ok" : "bad"}>{msg.text}</Notice>
+        </div>
+      )}
+      {(["doctor", "patient", "admin"] as const).map((role) => (
+        <div key={role} className="mt-5">
+          <div className="eyebrow">{role}s</div>
+          <ul className="mt-2 space-y-1">
+            {(data ?? []).filter((u) => u.role === role).map((u) => (
+              <li key={u.id} className="flex items-center gap-3 rounded-[14px] px-2 py-1.5 hover:bg-panel">
+                <Avatar name={u.name} size={30} />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{u.name}</span>
+                  <span className="block truncate text-[12px] text-faint">{u.email}</span>
+                </span>
+              </li>
+            ))}
+            {!data && <li className="skeleton h-10" />}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 
-function TransparencyPanel() {
+function SignedHead() {
   const [state, setState] = useState<{ check: HeadCheck; growth: GrowthCheck } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -81,116 +108,130 @@ function TransparencyPanel() {
     })().catch((e: Error) => setError(e.message));
   }, []);
   if (error) return <Notice tone="bad">{error}</Notice>;
-  if (!state) return null;
+  if (!state) return <div className="skeleton h-28" />;
   const { check, growth } = state;
   const h = check.info.head;
   const ok = check.signatureOk && check.keyPinned !== "changed" && growth.consistent !== false;
   return (
-    <Panel className="mb-5">
-      <div className="grid gap-4 p-5 md:grid-cols-[1fr_auto]">
-        <div>
-          <div className="label">Signed tree head, checked in this browser</div>
-          <p className="mt-2 text-sm">
-            {ok ? "✓ " : "✗ "}
-            {!check.signatureOk
-              ? "The signature on the log head does not verify."
-              : check.keyPinned === "changed"
-                ? "The signing key changed since this browser last looked."
-                : growth.consistent === false
-                  ? `The log seen on ${date(growth.previous!.timestamp)} (${growth.previous!.size} entries) is not a prefix of today's log. Past entries were rewritten or removed.`
-                  : growth.consistent
-                    ? `Since this browser's last check (${growth.previous!.size} entries, ${date(growth.previous!.timestamp)}), the log only grew: a consistency proof shows nothing earlier was changed.`
-                    : "First check from this browser. The head is saved here, so the next visit can prove the log only grew."}
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-faint">
-            Entries are leaves of a Merkle tree (as in Certificate Transparency, RFC 9162). The log signs its size and root with Ed25519; patients can prove their own entries are included, and any two heads can be checked for append-only growth.
-          </p>
+    <div className={`rounded-[20px] border p-4 ${ok ? "border-accent/25 bg-accent-soft" : "border-coral/40 bg-coral-soft"}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="eyebrow">Signed tree head · checked in this browser</div>
+        <div className="font-mono text-[11px] text-faint">
+          size {h.size} · root {short(h.root)} · key {check.info.keyId}
         </div>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:text-right">
-          <dt className="text-faint">Entries</dt>
-          <dd className="font-mono">{h.size}</dd>
-          <dt className="text-faint">Root</dt>
-          <dd className="font-mono text-xs">{short(h.root)}</dd>
-          <dt className="text-faint">Key</dt>
-          <dd className="font-mono text-xs">{check.info.keyId}</dd>
-        </dl>
       </div>
-    </Panel>
+      <p className={`mt-2 text-sm ${ok ? "text-ink" : "text-coral"}`}>
+        {ok ? "✓ " : "✗ "}
+        {!check.signatureOk
+          ? "The signature on the log head does not verify."
+          : check.keyPinned === "changed"
+            ? "The signing key changed since this browser last looked."
+            : growth.consistent === false
+              ? `The log seen on ${date(growth.previous!.timestamp)} (${growth.previous!.size} entries) is not a prefix of today's. Past entries were rewritten or removed.`
+              : growth.consistent
+                ? `Since this browser's last check (${growth.previous!.size} entries), the log only grew: a consistency proof shows nothing earlier changed.`
+                : "First check from this browser. The head is kept here, so the next visit can prove the log only grew."}
+      </p>
+    </div>
   );
 }
 
-export function AuditLog() {
+/** The audit log drawn as a chain: each block names the previous block's hash. */
+function Chain() {
   const { data } = useApi<{ entries: AuditEntry[] }>("/api/audit");
   const people = useApi<{ users: User[] }>("/api/admin/users");
-  // Show who an entry is about, not their id. Patients are users too, so one lookup covers both.
+  const [v, setV] = useState<Verify | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<number | null>(null);
   const names = new Map((people.data?.users ?? []).map((u) => [u.id, u.name]));
-  const who = (target: string) => {
+  const who = (id: string) => names.get(id) ?? (id === "system" ? "MedVault" : id === "responder" ? "A responder" : id.includes("@") ? id : id.slice(0, 8));
+  const about = (target: string) => {
     const [kind, id] = target.split(":");
     if ((kind === "user" || kind === "patient") && id && names.has(id)) return names.get(id)!;
     if (kind === "record" && id) return `record ${id.slice(0, 8)}`;
     return target;
   };
-  const v = useApi<{ ok: boolean; brokenAt: number | null; entries: number; head: string | null; transparency?: { headsChecked: number; firstBrokenHead: { size: number } | null } }>("/api/audit/verify");
+  const broken = v && !v.ok ? v.brokenAt : null;
+
+  async function verify() {
+    setBusy(true);
+    try {
+      setV(await api<Verify>("/api/audit/verify"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <section className="mt-8" aria-labelledby="h-audit">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+    <section aria-labelledby="h-chain" className="min-w-0">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="h-audit" className="text-[1.35rem] font-extrabold">
+          <p className="eyebrow">Hash chain + RFC 9162 Merkle log</p>
+          <h2 id="h-chain" className="mt-1.5 text-[1.45rem] font-bold tracking-tight">
             Audit log
           </h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted">Each entry includes the SHA-256 hash of the one before it and is a leaf of a signed Merkle log, so editing or deleting any past entry is detected.</p>
         </div>
-        <button className="btn" onClick={() => void v.reload()}>
-          Verify chain
+        <button className="btn btn-accent" disabled={busy} onClick={() => void verify()}>
+          {busy ? "Verifying…" : "Verify chain"}
         </button>
       </div>
-      <TransparencyPanel />
-      {v.data && (
-        <div className="mb-5">
-          <Notice tone={v.data.ok && !v.data.transparency?.firstBrokenHead ? "ok" : "bad"}>
-            {v.data.ok ? `Chain intact: ${v.data.entries} entries verified. Head ${short(v.data.head ?? "")}.` : `Chain broken at entry #${v.data.brokenAt}. The log has been altered.`}
-            {v.data.transparency && (v.data.transparency.firstBrokenHead ? ` The signed head for ${v.data.transparency.firstBrokenHead.size} entries no longer matches storage.` : ` All ${v.data.transparency.headsChecked} signed heads still match storage.`)}
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">Each block holds the SHA-256 of the one before it and is a leaf of a Merkle tree whose head is signed with Ed25519. Edit or delete any past block and every link after it breaks.</p>
+      <div className="mt-4">
+        <SignedHead />
+      </div>
+      {v && (
+        <div className="mt-3" role="status">
+          <Notice tone={v.ok && !v.transparency?.firstBrokenHead ? "ok" : "bad"}>
+            {v.ok ? `Chain intact: ${v.entries} entries verified. Head ${short(v.head ?? "")}.` : `Chain broken at entry #${v.brokenAt}. The log has been altered.`}
+            {v.transparency && (v.transparency.firstBrokenHead ? ` The signed head for ${v.transparency.firstBrokenHead.size} entries no longer matches storage.` : ` All ${v.transparency.headsChecked} signed heads still match storage.`)}
           </Notice>
         </div>
       )}
-      <Panel>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="label text-left">
-                <th className="px-5 py-2.5 font-medium">#</th>
-                <th className="px-2 py-2.5 font-medium">When</th>
-                <th className="px-2 py-2.5 font-medium">Event</th>
-                <th className="hidden px-2 py-2.5 font-medium md:table-cell">Target</th>
-                <th className="px-5 py-2.5 font-medium">Hash</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.entries ?? []).map((e) => (
-                <tr key={e.seq} className="border-t border-line">
-                  <td className="px-5 py-2.5 font-mono text-xs text-faint">{e.seq}</td>
-                  <td className="whitespace-nowrap px-2 py-2.5 text-muted">{date(e.ts)}</td>
-                  <td className="px-2 py-2.5">{ACTIONS[e.action] ?? e.action}</td>
-                  <td className="hidden max-w-56 truncate px-2 py-2.5 text-sm text-muted md:table-cell" title={e.target}>
-                    {who(e.target)}
-                  </td>
-                  <td className="px-5 py-2.5 font-mono text-xs text-faint">{e.hash.slice(0, 12)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+      <ol className="mt-6" aria-label="Audit log blocks, newest first">
+        {(data?.entries ?? []).map((e, i) => {
+          const bad = broken !== null && e.seq >= broken;
+          const tone = e.action.startsWith("sos.open") || e.action.endsWith("failed") || e.action.endsWith("denied") ? "bg-coral" : e.action.startsWith("loan.") ? "bg-amber" : "bg-accent";
+          return (
+            <li key={e.seq} className="relative pl-10">
+              {/* The link to the previous block. */}
+              {i < (data?.entries.length ?? 0) - 1 && <span className={`absolute left-[15px] top-8 h-[calc(100%-1rem)] w-px ${bad ? "bg-coral" : "bg-line-2"}`} aria-hidden />}
+              <span className={`absolute left-0 top-1.5 grid h-8 w-8 place-items-center rounded-[10px] border font-mono text-[10.5px] ${bad ? "border-coral text-coral" : "border-line-2 bg-panel text-muted"}`}>{e.seq}</span>
+              <button onClick={() => setOpen(open === e.seq ? null : e.seq)} aria-expanded={open === e.seq} className="mb-2 w-full rounded-[16px] border border-transparent px-3 py-2 text-left transition-colors hover:border-line hover:bg-panel">
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${tone}`} aria-hidden />
+                  <span className="font-medium">{ACTIONS[e.action] ?? e.action}</span>
+                  <span className="text-sm text-muted">
+                    {who(e.actor)}
+                    {about(e.target) !== who(e.actor) && ` → ${about(e.target)}`}
+                  </span>
+                  <span className="ml-auto font-mono text-[10.5px] text-faint">{date(e.ts)}</span>
+                </span>
+                <span className="mt-1 block font-mono text-[10.5px] text-faint">
+                  prev {e.prevHash.slice(0, 10)} · hash <span className={bad ? "text-coral" : "text-accent"}>{e.hash.slice(0, 10)}</span>
+                </span>
+                {open === e.seq && (
+                  <span className="fade mt-2 block break-all rounded-[10px] bg-bg p-2.5 font-mono text-[10.5px] leading-relaxed text-muted">
+                    actor {e.actor}
+                    <br />
+                    target {e.target}
+                    {e.detail && (
+                      <>
+                        <br />
+                        detail {e.detail}
+                      </>
+                    )}
+                    <br />
+                    prev {e.prevHash}
+                    <br />
+                    hash {e.hash}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+        {!data && [0, 1, 2, 3].map((i) => <li key={i} className="skeleton mb-2 ml-10 h-14" />)}
+      </ol>
     </section>
-  );
-}
-
-/** The administrator's one screen: accounts, then the audit log. */
-export function AdminHome() {
-  return (
-    <>
-      <Users />
-      <AuditLog />
-    </>
   );
 }

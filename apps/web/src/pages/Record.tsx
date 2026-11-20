@@ -140,7 +140,7 @@ export function RecordView({ id }: { id: string }) {
             </dl>
           </Panel>
 
-          <Panel title="Security checks">
+          <Panel title="Seal checks">
             <ul className="space-y-2.5 px-5 pb-5 pt-3">
               <Check ok>Decrypted with AES-256-GCM using this record's own key (authenticity verified)</Check>
               <Check ok={verification.fileIntact}>Stored image matches its SHA-256 fingerprint</Check>
@@ -163,7 +163,7 @@ export function RecordView({ id }: { id: string }) {
             </div>
           </Panel>
 
-          <Panel title="Watermark quality">
+          <Panel title="Hidden, invisibly">
             <dl className="grid grid-cols-2 gap-3 px-5 pb-5 pt-3 text-sm sm:grid-cols-3">
               {[
                 ["PSNR", `${s.psnr} dB`, "above 40 dB is invisible"],
@@ -214,7 +214,7 @@ function RecordImage({ meta, variant }: { meta: RecordMeta; variant: ImageVarian
   const src = useRecordImage(meta.id, variant);
   const alt = VIEWS.find((x) => x.v === variant)!.t;
   const s = meta.stats;
-  const modality = meta.scan?.format === "dicom" ? `DICOM ${meta.scan.bitDepth ?? 16}-bit` : "PNG 8-bit";
+  const modality = meta.scan?.format === "dicom" ? `DICOM ${meta.scan.bitDepth ?? 16}-bit` : `PNG ${meta.scan?.bitDepth ?? 8}-bit`;
   return (
     <div className="film aspect-square w-full overflow-hidden">
       {src ? (

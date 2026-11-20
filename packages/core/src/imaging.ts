@@ -96,18 +96,30 @@ export function differenceMap(a: Gray, b: Gray): Gray {
   return { width: a.width, height: a.height, data: out };
 }
 
-/** Peak signal-to-noise ratio, relative to the image's own peak value (255, 4095, 65535...). */
+/**
+ * The peak used for PSNR and SSIM: 255 for 8-bit images; for deeper ones the largest value the
+ * image actually uses, so a 10-bit MRI in a 16-bit container is not measured against 65535
+ * (which would flatter it by over 30 dB).
+ */
+function peakOf(a: Gray): number {
+  if (!(a.data instanceof Uint16Array)) return maxOf(a);
+  let m = 1;
+  for (let i = 0; i < a.data.length; i++) if (a.data[i] > m) m = a.data[i];
+  return m;
+}
+
+/** Peak signal-to-noise ratio, relative to the image's own peak value (see peakOf). */
 export function psnr(a: Gray, b: Gray): number {
   let mse = 0;
   for (let i = 0; i < a.data.length; i++) mse += (a.data[i] - b.data[i]) ** 2;
   mse /= a.data.length;
-  const peak = maxOf(a);
+  const peak = peakOf(a);
   return mse === 0 ? Infinity : 10 * Math.log10((peak * peak) / mse);
 }
 
 /** Mean SSIM over 8x8 windows (Wang et al., 2004). */
 export function ssim(a: Gray, b: Gray, win = 8): number {
-  const L = maxOf(a);
+  const L = peakOf(a);
   const C1 = (0.01 * L) ** 2;
   const C2 = (0.03 * L) ** 2;
   let total = 0;

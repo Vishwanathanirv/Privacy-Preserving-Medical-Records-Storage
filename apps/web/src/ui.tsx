@@ -27,7 +27,7 @@ export function Panel({ title, action, children, className = "" }: { title?: Rea
     <section className={`panel ${className}`}>
       {(title || action) && (
         <div className="flex items-center justify-between gap-3 px-5 pb-1 pt-4">
-          <h2 className="text-[1.02rem] font-bold">{title}</h2>
+          <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-faint">{title}</h2>
           {action}
         </div>
       )}
@@ -40,7 +40,7 @@ export function PageHeader({ title, sub, action }: { title: ReactNode; sub?: Rea
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-[1.75rem] font-extrabold leading-tight tracking-[-0.02em]">{title}</h1>
+        <h1 className="display text-[clamp(1.9rem,4vw,2.8rem)]">{title}</h1>
         {sub && <p className="mt-1 max-w-2xl text-[0.95rem] text-muted">{sub}</p>}
       </div>
       {action}
