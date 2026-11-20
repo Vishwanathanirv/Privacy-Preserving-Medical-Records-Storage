@@ -35,6 +35,16 @@
   --spring: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%, 1.001 85.5%, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   color-scheme: dark;
+  /* Shared by both palettes before the theme switch was removed. */
+  --accent-2: #7c5cff;
+  --ok: #138a5b;
+  --ok-soft: rgba(19, 138, 91, 0.1);
+  --warn: #b26a00;
+  --warn-soft: rgba(178, 106, 0, 0.11);
+  --bad: #d12f3c;
+  --bad-soft: rgba(209, 47, 60, 0.1);
+  --blob-1: rgba(224, 67, 108, 0.16);
+  --blob-2: rgba(124, 92, 255, 0.14);
 }
 
 @theme inline {
