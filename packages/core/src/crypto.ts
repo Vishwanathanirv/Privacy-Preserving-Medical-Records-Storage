@@ -1,5 +1,6 @@
 import { gcm } from "@noble/ciphers/aes.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { deflateSync, inflateSync } from "fflate";
@@ -73,6 +74,17 @@ export function rewrapKey(oldKek: Uint8Array, newKek: Uint8Array, recordId: stri
   } finally {
     dek.fill(0);
   }
+}
+
+/**
+ * The key for one loan of a record to a doctor: HKDF-SHA256 over the master key, salted with the
+ * loan id and bound to who, what and until when. The record's data key is re-wrapped under it, so
+ * the loan opens the record only while that wrapped copy exists, and changing any term of the
+ * loan (say, pushing back its expiry in the database) yields a different key that opens nothing.
+ */
+export function deriveLoanKey(kek: Uint8Array, terms: { id: string; recordId: string; patientId: string; doctorId: string; expiresAt: number }): Uint8Array {
+  const info = `medvault/loan/v1|${terms.recordId}|${terms.patientId}|${terms.doctorId}|${terms.expiresAt}`;
+  return hkdf(sha256, kek, enc.encode(terms.id), enc.encode(info), 32);
 }
 
 /**

@@ -11,6 +11,8 @@ const H = { "x-medvault": "1" };
 
 beforeAll(async () => {
   ({ app, db } = await buildApp({ dbFile: ":memory:", seed: true }));
+  // The demo seeds a loan to Dr. Rao; these tests are about consent alone (loans: loans.test.ts).
+  for (const l of db.dueLoans(Number.MAX_SAFE_INTEGER)) db.endLoan(l.id, "revoked", Date.now());
 });
 afterAll(() => app.close());
 

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { api, date, downloadRecordFile, short, useApi, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
+import { api, date, downloadRecordFile, short, useApi, useAuth, useGo, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
+import { left, useNow } from "../loans";
 import { Check, Notice, PageHeader, Panel } from "../ui";
 
-type Opened = { meta: RecordMeta; record: Clinical; verification: { fileIntact: boolean; restoredExact: boolean; layers: number } };
+type Opened = { meta: RecordMeta; record: Clinical; verification: { fileIntact: boolean; restoredExact: boolean; layers: number }; loan: { id: string; expiresAt: number } | null };
 type Tamper = { detected: boolean; changedPixel: { x: number; y: number }; stage?: string; message: string };
 
 const VIEWS = [
@@ -39,7 +40,17 @@ export function RecordView({ id }: { id: string }) {
         <Notice tone="bad">{error}</Notice>
       </div>
     );
-  if (!data) return <p className="pt-6 text-muted">Decrypting…</p>;
+  if (!data)
+    return (
+      <div className="grid gap-5 pt-6 lg:grid-cols-2" aria-busy="true" aria-label="Decrypting">
+        <div className="skeleton aspect-square" />
+        <div className="space-y-4">
+          <div className="skeleton h-10 w-3/4" />
+          <div className="skeleton h-40" />
+          <div className="skeleton h-32" />
+        </div>
+      </div>
+    );
   const { meta, record, verification } = data;
   const s = meta.stats;
   const dicom = meta.scan?.format === "dicom";
@@ -48,8 +59,9 @@ export function RecordView({ id }: { id: string }) {
   return (
     <>
       <div className="pr-12 pt-3">
-        <PageHeader title={record.title} sub={`${record.author}, ${date(record.createdAt)}`} />
+        <PageHeader title={record.title} sub={`${record.author}, ${date(record.createdAt)}`} action={<PatientLend id={meta.id} />} />
       </div>
+      {data.loan && <LoanBanner expiresAt={data.loan.expiresAt} />}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
         <Panel className="self-start overflow-hidden lg:sticky lg:top-4">
           <div className="m-3 mb-0 flex gap-1 rounded-full bg-panel-2 p-1" role="tablist">
@@ -227,6 +239,36 @@ function RecordImage({ meta, variant }: { meta: RecordMeta; variant: ImageVarian
         <br />
         PSNR {s.psnr.toFixed(1)} dB
       </div>
+    </div>
+  );
+}
+
+/** For the patient who owns the record: lend it from here. */
+function PatientLend({ id }: { id: string }) {
+  const { user } = useAuth();
+  const go = useGo();
+  if (user?.role !== "patient") return null;
+  return (
+    <button className="btn btn-amber" onClick={() => go(`/lend/${id}`)}>
+      Lend this card
+    </button>
+  );
+}
+
+/** For a doctor reading through a loan: how long is left. When it ends, the record is gone. */
+function LoanBanner({ expiresAt }: { expiresAt: number }) {
+  const now = useNow();
+  const ms = expiresAt - now;
+  return (
+    <div role="status" className={`mb-5 flex items-center gap-3 rounded-[18px] border px-4 py-3 text-sm ${ms > 0 ? "border-amber/40 bg-amber-soft text-amber" : "border-coral/40 bg-coral-soft text-coral"}`}>
+      <span className="h-2 w-2 flex-none rounded-full bg-current" aria-hidden />
+      {ms > 0 ? (
+        <span>
+          Lent to you. Access ends in <b className="tnum">{left(ms)}</b>, then the loan's key is destroyed and this record closes.
+        </span>
+      ) : (
+        <span>The loan has ended and its key was destroyed. Close this record: it can no longer be opened.</span>
+      )}
     </div>
   );
 }

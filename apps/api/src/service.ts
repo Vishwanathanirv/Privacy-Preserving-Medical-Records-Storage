@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { verifyChain, type AuditEntry } from "@medvault/core";
-import type { RecordMeta, Role, User } from "./types";
+import type { Loan, RecordMeta, Role, User } from "./types";
 import { RecordInput } from "./schema";
 import type { TransparencyLog } from "./translog";
 import { type Vault, VaultError } from "./vault";
@@ -29,6 +29,27 @@ export interface Store {
   audit(actor: string, action: string, target: string, detail?: string): AuditEntry;
   auditAll(): AuditEntry[];
   auditRecent(limit?: number, targets?: string[]): AuditEntry[];
+  insertLoan(l: Loan): void;
+  getLoan(id: string): Loan | null;
+  /** Loans given by a patient or held by a doctor, newest first. */
+  listLoans(by: { patientId?: string; doctorId?: string }): Loan[];
+  /** Loans still marked active whose time is up. */
+  dueLoans(now: number): Loan[];
+  /** Ends a loan and destroys its wrapped key. */
+  endLoan(id: string, reason: "expired" | "revoked", at: number): void;
+}
+
+/** How long a record can be lent for, in minutes: from 1 minute up to 30 days. */
+export const LOAN_MINUTES = { min: 1, max: 30 * 24 * 60 };
+
+/** Lends a record to a doctor: a fresh loan key is derived and the record's data key re-wrapped under it. */
+export function lend(db: Pick<Store, "insertLoan" | "audit">, vault: Vault, terms: { recordId: string; patientId: string; doctorId: string; minutes: number; now: number }): Loan {
+  const id = globalThis.crypto.randomUUID();
+  const t = { id, recordId: terms.recordId, patientId: terms.patientId, doctorId: terms.doctorId, expiresAt: terms.now + Math.round(terms.minutes * 60_000) };
+  const loan: Loan = { ...t, createdAt: terms.now, wrappedKey: vault.wrapForLoan(t), endedAt: null, endReason: null };
+  db.insertLoan(loan);
+  db.audit(terms.patientId, "loan.create", `record:${terms.recordId}`, `doctor:${terms.doctorId}|loan:${id}|until:${t.expiresAt}`);
+  return loan;
 }
 
 export type Passwords = { hash(pw: string): Promise<string>; verify(pw: string, stored: string | null): Promise<boolean> };
@@ -67,10 +88,24 @@ export class Service {
     private vault: Vault,
     private tlog: TransparencyLog,
     private passwords: Passwords,
+    private now: () => number = Date.now,
   ) {}
+
+  /**
+   * Ends every loan whose time is up: its wrapped key is destroyed and the end is logged. Runs
+   * before each call, so an expired loan can never be used, even if nothing else happened since.
+   */
+  sweepLoans() {
+    const now = this.now();
+    for (const l of this.db.dueLoans(now)) {
+      this.db.endLoan(l.id, "expired", l.expiresAt);
+      this.db.audit("system", "loan.expire", `record:${l.recordId}`, `doctor:${l.doctorId}|loan:${l.id}`);
+    }
+  }
 
   async handle(c: Call): Promise<Result> {
     try {
+      this.sweepLoans();
       return await this.route(c);
     } catch (e) {
       if (e instanceof z.ZodError) return { status: 400, data: { error: e.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ") } };
@@ -92,13 +127,28 @@ export class Service {
     return (s.role === "patient" && s.sub === patientId) || (s.role === "doctor" && this.db.hasGrant(patientId, s.sub));
   }
 
-  private requireRecordAccess(s: Session, recordId: string) {
+  /** An active loan of this record to this doctor, if any. */
+  private loanFor(recordId: string, doctorId: string): Loan | undefined {
+    const now = this.now();
+    return this.db.listLoans({ doctorId }).find((l) => l.recordId === recordId && !l.endedAt && l.expiresAt > now && l.wrappedKey);
+  }
+
+  /** Who may open a record, and through what: the patient, a doctor they trust, or a doctor holding a loan of it. */
+  private requireRecordAccess(s: Session, recordId: string): { meta: RecordMeta; loan?: Loan } {
     const r = this.vault.meta(recordId);
-    if (!r || !this.canAccessPatient(s, r.patientId)) {
-      this.db.audit(s.sub, "record.denied", `record:${recordId}`, s.role);
-      throw new HttpError(404, "Record not found"); // 404, not 403: do not reveal that it exists
-    }
-    return r;
+    if (r && this.canAccessPatient(s, r.patientId)) return { meta: r };
+    const loan = r && s.role === "doctor" ? this.loanFor(recordId, s.sub) : undefined;
+    if (r && loan) return { meta: r, loan };
+    this.db.audit(s.sub, "record.denied", `record:${recordId}`, s.role);
+    throw new HttpError(404, "Record not found"); // 404, not 403: do not reveal that it exists
+  }
+
+  private loanView(l: Loan) {
+    const meta = this.vault.meta(l.recordId);
+    const doctor = this.db.getUser(l.doctorId);
+    const patient = this.db.getUser(l.patientId);
+    const { wrappedKey, ...rest } = l;
+    return { ...rest, keyHeld: Boolean(wrappedKey), title: meta?.title ?? "Deleted record", doctorName: doctor?.name ?? "", patientName: patient?.name ?? "", record: meta };
   }
 
   /** Audit entries a user may see, and so request proofs for. */
@@ -192,24 +242,35 @@ export class Service {
       const s = this.auth(c, "doctor", "patient");
       const id = Id.parse(m[1]);
       const rest = m[2] ?? "";
-      this.requireRecordAccess(s, id);
+      if (method === "POST" && rest === "/loans") {
+        // Lending is the patient's decision alone, so it is checked before general access.
+        const p = this.auth(c, "patient");
+        const meta = this.vault.meta(id);
+        if (!meta || meta.patientId !== p.sub) throw new HttpError(404, "Record not found");
+        const b = z.object({ doctorId: Id, minutes: z.number().int().min(LOAN_MINUTES.min).max(LOAN_MINUTES.max) }).parse(c.body);
+        if (db.getUser(b.doctorId)?.role !== "doctor") throw new HttpError(404, "Doctor not found");
+        const loan = lend(db, this.vault, { recordId: id, patientId: p.sub, doctorId: b.doctorId, minutes: b.minutes, now: this.now() });
+        return ok({ loan: this.loanView(loan) });
+      }
+      const { loan } = this.requireRecordAccess(s, id);
+      const via = loan ? `|loan:${loan.id}` : "";
       if (method === "GET" && rest === "") {
-        const opened = this.vault.open(id);
-        db.audit(s.sub, "record.view", `record:${id}`, `patient:${opened.meta.patientId}`);
+        const opened = this.vault.open(id, { loan });
+        db.audit(s.sub, "record.view", `record:${id}`, `patient:${opened.meta.patientId}${via}`);
         const { stegoPng: _s, wrappedKey: _w, ...meta } = opened.meta;
-        return ok({ meta, record: opened.record, verification: opened.verification });
+        return ok({ meta, record: opened.record, verification: opened.verification, loan: loan ? { id: loan.id, expiresAt: loan.expiresAt } : null });
       }
       let v: RegExpMatchArray | null;
       if (method === "GET" && (v = rest.match(/^\/image\/(stego|original|diff)$/))) {
         const variant = v[1] as "stego" | "original" | "diff";
-        const png = this.vault.image(id, variant);
-        if (variant !== "stego") db.audit(s.sub, `image.${variant}`, `record:${id}`);
+        const png = this.vault.image(id, variant, loan);
+        if (variant !== "stego") db.audit(s.sub, `image.${variant}`, `record:${id}`, via.slice(1));
         return { status: 200, file: { bytes: png, type: "image/png", filename: q.get("download") ? `medvault-${id.slice(0, 8)}-${variant}.png` : undefined } };
       }
       if (method === "GET" && (v = rest.match(/^\/file\/(stored|original)$/))) {
         const kind = v[1] as "stored" | "original";
-        const f = this.vault.file(id, kind);
-        if (kind === "original") db.audit(s.sub, "file.original", `record:${id}`);
+        const f = this.vault.file(id, kind, loan);
+        if (kind === "original") db.audit(s.sub, "file.original", `record:${id}`, via.slice(1));
         return { status: 200, file: { bytes: f.bytes, type: f.type, filename: f.filename } };
       }
       if (method === "POST" && rest === "/tamper-test") return ok(this.vault.tamperTest(id));
@@ -219,10 +280,28 @@ export class Service {
       const s = this.auth(c, "doctor", "patient");
       if (!c.file?.length) throw new HttpError(400, "Upload a PNG or DICOM file in the 'file' field.");
       const recordId = this.vault.identify(c.file);
-      this.requireRecordAccess(s, recordId);
-      const opened = this.vault.open(recordId, c.file);
+      const { loan } = this.requireRecordAccess(s, recordId);
+      const opened = this.vault.open(recordId, { file: c.file, loan });
       db.audit(s.sub, "record.verify", `record:${recordId}`);
       return ok({ recordId, title: opened.meta.title, verification: opened.verification });
+    }
+
+    // ---------- loans ----------
+    if (method === "GET" && path === "/api/loans") {
+      const s = this.auth(c, "doctor", "patient");
+      const loans = db.listLoans(s.role === "patient" ? { patientId: s.sub } : { doctorId: s.sub });
+      // Doctors only see loans that are still running; patients see their whole history.
+      return ok({ now: this.now(), loans: loans.filter((l) => s.role === "patient" || !l.endedAt).map((l) => this.loanView(l)) });
+    }
+    if (method === "DELETE" && (m = path.match(/^\/api\/loans\/([^/]+)$/))) {
+      const s = this.auth(c, "patient");
+      const l = db.getLoan(Id.parse(m[1]));
+      if (!l || l.patientId !== s.sub) throw new HttpError(404, "Loan not found");
+      if (!l.endedAt) {
+        db.endLoan(l.id, "revoked", this.now());
+        db.audit(s.sub, "loan.revoke", `record:${l.recordId}`, `doctor:${l.doctorId}|loan:${l.id}`);
+      }
+      return ok({ loan: this.loanView(db.getLoan(l.id)!) });
     }
 
     // ---------- audit ----------

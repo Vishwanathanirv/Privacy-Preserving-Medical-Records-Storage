@@ -19,7 +19,7 @@ const DUMMY_HASH = "scrypt$32768$AAAAAAAAAAAAAAAAAAAAAA$" + "A".repeat(86);
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export type AppOptions = { dbFile?: string; keyDir?: string; logger?: boolean; seed?: boolean };
+export type AppOptions = { dbFile?: string; keyDir?: string; logger?: boolean; seed?: boolean; now?: () => number };
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -66,7 +66,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
     return reply.status(status).send({ error: status >= 500 ? "Internal error" : (err as Error).message });
   });
 
-  const service = new Service(db, vault, tlog, { hash: hashPassword, verify: (pw, stored) => verifyPassword(pw, stored ?? DUMMY_HASH) });
+  const service = new Service(db, vault, tlog, { hash: hashPassword, verify: (pw, stored) => verifyPassword(pw, stored ?? DUMMY_HASH) }, opts.now);
 
   /** Hands every API call to the shared service and translates its result into HTTP. */
   const handle = async (req: FastifyRequest, reply: FastifyReply) => {

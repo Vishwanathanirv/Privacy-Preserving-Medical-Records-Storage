@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, date, useApi, useAuth, type RecordMeta } from "../lib";
+import { api, date, useApi, useAuth, type AuditEntry, type RecordMeta } from "../lib";
+import { LoanTicket, useNow, type LoanView } from "../loans";
 import { Avatar, Notice, Sheet, Wallet } from "../ui";
 
 type Patient = { id: string; name: string; email: string; grantedAt: number; records: number };
@@ -17,6 +18,10 @@ export function DoctorHome() {
   const patients = list.data?.patients ?? [];
   const current = id ?? patients[0]?.id;
   const detail = useApi<{ patient: { id: string; name: string; email: string }; records: RecordMeta[] }>(current ? `/api/patients/${current}` : null);
+  const loans = useApi<{ loans: LoanView[] }>("/api/loans");
+  const now = useNow(5000);
+  const lentToMe = (loans.data?.loans ?? []).filter((l) => l.expiresAt > now);
+  const noEntries: AuditEntry[] = [];
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
   const shown = patients.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
@@ -24,10 +29,21 @@ export function DoctorHome() {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
       <section aria-labelledby="h-patients">
-        <h1 id="h-patients" className="text-[1.75rem] font-extrabold leading-tight tracking-[-0.02em]">
+        <p className="eyebrow">{user?.name}</p>
+        <h1 id="h-patients" className="display mt-2 text-[clamp(2.2rem,5vw,3.2rem)]">
           Your patients
         </h1>
-        <p className="mt-1 text-[0.95rem] text-muted">{user?.name}. Only patients who switched you on appear here; if they switch you off, they disappear.</p>
+        <p className="mt-3 text-[0.95rem] leading-relaxed text-muted">Patients who put you on their care team. If they switch you off, they disappear from here at once.</p>
+        {lentToMe.length > 0 && (
+          <div className="mt-6">
+            <p className="eyebrow text-amber">Lent to you</p>
+            <ul className="mt-2.5 space-y-2" aria-label="Records lent to you">
+              {lentToMe.map((l) => (
+                <LoanTicket key={l.id} loan={l} entries={noEntries} perspective="doctor" />
+              ))}
+            </ul>
+          </div>
+        )}
         {patients.length > 3 && <input className="field mt-4" placeholder="Find a patient" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find a patient" />}
         {list.error && (
           <div className="mt-4">
@@ -37,7 +53,7 @@ export function DoctorHome() {
         <ul className="mt-4 space-y-1.5">
           {shown.map((p) => (
             <li key={p.id}>
-              <Link to={`/patients/${p.id}`} aria-current={p.id === current ? "page" : undefined} className={`flex items-center gap-3 rounded-[20px] p-3 transition-colors ${p.id === current ? "bg-panel shadow-[var(--shadow)]" : "hover:bg-panel/60"}`}>
+              <Link to={`/patients/${p.id}`} aria-current={p.id === current ? "page" : undefined} viewTransition className={`flex items-center gap-3 rounded-[18px] border p-3 transition-colors ${p.id === current ? "border-line-2 bg-panel" : "border-transparent hover:bg-panel/60"}`}>
                 <Avatar name={p.name} size={44} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-bold">{p.name}</span>
@@ -59,7 +75,7 @@ export function DoctorHome() {
               <div className="flex items-center gap-3">
                 <Avatar name={detail.data.patient.name} size={52} />
                 <div>
-                  <h2 className="text-[1.35rem] font-extrabold leading-tight">{detail.data.patient.name}</h2>
+                  <h2 className="text-[1.45rem] font-bold leading-tight tracking-tight">{detail.data.patient.name}</h2>
                   <p className="text-sm text-muted">{detail.data.patient.email}</p>
                 </div>
               </div>
@@ -119,7 +135,8 @@ function NewRecord({ patientId, onCancel, onCreated }: { patientId: string; onCa
 
   return (
     <div className="pt-4">
-      <h2 className="pr-12 text-[1.5rem] font-extrabold tracking-[-0.02em]">New record</h2>
+      <p className="eyebrow">Seal a new card</p>
+      <h2 className="display mt-2 pr-12 text-[2.2rem]">New record</h2>
       <p className="mt-1 text-sm text-muted">When you save, it is encrypted and sealed inside the scan's pixels. Only this patient's approved doctors can open it.</p>
       <form onSubmit={submit} className="mt-5 grid gap-4 md:grid-cols-2">
         <label className="md:col-span-2">

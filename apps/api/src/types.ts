@@ -40,6 +40,20 @@ export interface RecordStore {
 /** Storage the demo seeder needs. */
 export interface SeedStore {
   createUser(u: Omit<User, "createdAt">, passwordHash: string): User;
+  insertLoan(l: Loan): void;
   grant(patientId: string, doctorId: string): void;
   audit(actor: string, action: string, target: string, detail?: string): AuditEntry;
 }
+
+/** A record lent to a doctor until `expiresAt`. `wrappedKey` is the record's data key sealed under the loan's own key; it is destroyed when the loan ends. */
+export type Loan = {
+  id: string;
+  recordId: string;
+  patientId: string;
+  doctorId: string;
+  createdAt: number;
+  expiresAt: number;
+  wrappedKey: Uint8Array | null;
+  endedAt: number | null;
+  endReason: "expired" | "revoked" | null;
+};

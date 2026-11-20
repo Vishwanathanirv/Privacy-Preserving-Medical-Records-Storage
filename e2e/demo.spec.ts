@@ -60,3 +60,34 @@ test("the admin can verify the audit chain but cannot read records", async ({ pa
   // Entries name the people involved, not their ids.
   await expect(page.locator("td").filter({ hasText: /^user:/ })).toHaveCount(0);
 });
+
+test("a patient lends a record for 15 minutes, the doctor opens it, and taking it back closes it at once", async ({ page }) => {
+  await signInAs(page, "Anitha Kumar");
+  await page.getByRole("button", { name: "Lend a card" }).click();
+  const sheet = page.getByRole("dialog", { name: "Lend a record" });
+  await sheet.getByText("Dr. Arjun Rao").click();
+  await sheet.getByRole("radio", { name: "15 min" }).click();
+  await sheet.getByRole("button", { name: /^Lend to Dr\. Arjun Rao for 15 min/ }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByText(/With Dr\. Arjun Rao · 1[45]m \d\ds left/)).toBeVisible();
+  await signOut(page);
+
+  await signInAs(page, "Dr. Arjun Rao");
+  const lent = page.getByRole("list", { name: "Records lent to you" });
+  await lent.getByRole("link", { name: /Head CT/ }).first().click();
+  const record = page.getByRole("dialog", { name: "Record" });
+  await expect(record.getByText(/Lent to you\. Access ends in/)).toBeVisible({ timeout: 30_000 });
+  await expect(record.getByText("Restored scan is bit-for-bit identical to the original")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await signOut(page);
+
+  await signInAs(page, "Anitha Kumar");
+  for (const b of await page.getByRole("button", { name: "Take back" }).all()) await b.click();
+  await expect(page.getByRole("button", { name: "Take back" })).toHaveCount(0);
+  await page.getByRole("button", { name: /^Access trail for/ }).first().click();
+  await expect(page.getByText("Taken back, key destroyed").first()).toBeVisible();
+  await signOut(page);
+
+  await signInAs(page, "Dr. Arjun Rao");
+  await expect(page.getByRole("list", { name: "Records lent to you" })).toHaveCount(0);
+});

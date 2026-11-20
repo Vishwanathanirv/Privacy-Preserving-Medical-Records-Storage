@@ -84,52 +84,71 @@ export function Avatar({ name, size = 40 }: { name: string; size?: number }) {
  * Records as a stack of cards, like a phone wallet: each card's art is the scan the record is
  * sealed in. Cards overlap so many fit; the one you point at lifts out of the stack.
  */
-export function Wallet({ records, empty, base = "/records" }: { records: RecordMeta[]; empty: string; base?: string }) {
+export function Wallet({ records, empty, base = "/records", onLend, lent }: { records: RecordMeta[]; empty: string; base?: string; onLend?: (r: RecordMeta) => void; lent?: Set<string> }) {
   if (!records.length)
     return (
-      <div className="grid h-48 place-items-center rounded-[24px] border-2 border-dashed border-line p-6 text-center text-sm text-muted">
+      <div className="grid h-48 place-items-center rounded-[22px] border border-dashed border-line-2 p-6 text-center text-sm text-faint">
         <p>{empty}</p>
       </div>
     );
   return (
     <ol className="relative" aria-label={`${records.length} record${records.length === 1 ? "" : "s"}`}>
       {records.map((r, i) => (
-        <li key={r.id} className={i ? "-mt-[7.25rem]" : ""} style={{ position: "relative", zIndex: i }}>
-          <WalletCard r={r} to={`${base}/${r.id}`} />
+        <li key={r.id} className={`group/card relative ${i ? "-mt-[7.6rem]" : ""}`} style={{ zIndex: i }}>
+          <WalletCard r={r} to={`${base}/${r.id}`} lent={lent?.has(r.id)} index={i} />
+          {onLend && (
+            <button onClick={() => onLend(r)} className="btn btn-amber absolute right-3.5 top-3.5 z-10 h-8 px-3 text-[12.5px] opacity-100 transition-opacity sm:opacity-0 sm:group-hover/card:opacity-100 sm:focus-visible:opacity-100" aria-label={`Lend ${r.title}`}>
+              Lend
+            </button>
+          )}
         </li>
       ))}
     </ol>
   );
 }
 
-function WalletCard({ r, to }: { r: RecordMeta; to: string }) {
+function WalletCard({ r, to, lent, index }: { r: RecordMeta; to: string; lent?: boolean; index: number }) {
   const src = useRecordImage(r.id, "stego");
   return (
-    <Link to={to} className="film group block h-[11rem] overflow-hidden shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.6)] transition-transform duration-200 hover:-translate-y-3 focus-visible:-translate-y-3" aria-label={`${r.title}, by ${r.authorName}, ${date(r.createdAt)}`}>
-      {src && <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70 transition-opacity group-hover:opacity-90" loading="lazy" />}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/20 to-black/70" />
+    <Link
+      to={to}
+      viewTransition
+      className="film rise group block h-[11.5rem] overflow-hidden border border-white/[0.07] shadow-[0_-10px_30px_-14px_rgba(0,0,0,0.9)] transition-transform duration-500 [transition-timing-function:var(--spring)] hover:-translate-y-4 focus-visible:-translate-y-4"
+      style={{ animationDelay: `${index * 70}ms` }}
+      aria-label={`${r.title}, by ${r.authorName}, ${date(r.createdAt)}${lent ? ", on loan" : ""}`}
+    >
+      {src ? <img src={src} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 transition-[opacity,transform] duration-700 group-hover:scale-100 group-hover:opacity-85" loading="lazy" /> : <div className="skeleton absolute inset-0 rounded-none" />}
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.82),rgba(0,0,0,0.15)_45%,rgba(0,0,0,0.85))]" />
       <div className="relative flex h-full flex-col justify-between p-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 pr-16">
+          <Chip />
           <div className="min-w-0">
-            <div className="truncate text-[1.02rem] font-bold">{r.title}</div>
-            <div className="text-xs text-white/70">
-              {r.authorName}, {new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+            <div className="truncate text-[1.05rem] font-semibold leading-tight">{r.title}</div>
+            <div className="mt-0.5 text-xs text-white/65">
+              {r.authorName} · {new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
             </div>
           </div>
-          <span className="flex-none rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold backdrop-blur">
-            {r.scan?.format === "dicom" ? `DICOM ${r.scan.modality ?? ""}`.trim() : "PNG"}
-          </span>
         </div>
-        <div className="flex items-end justify-between gap-3 font-mono text-[10.5px] text-white/75">
+        <div className="flex items-end justify-between gap-3 font-mono text-[10.5px] uppercase tracking-[0.08em] text-white/70">
           <span>
-            Sealed with AES-256-GCM
+            {r.scan?.format === "dicom" ? `DICOM ${r.scan.modality ?? ""} ${r.scan.bitDepth}-bit` : `PNG ${r.scan?.bitDepth ?? 8}-bit`}
             <br />
-            {(r.stats.payloadBytes / 1024).toFixed(1)} KB inside {r.width}×{r.height}
+            {(r.stats.payloadBytes / 1024).toFixed(1)} KB sealed in {r.width}×{r.height}
           </span>
-          <span className="text-right">PSNR {r.stats.psnr.toFixed(1)} dB</span>
+          {lent ? <span className="rounded-full bg-amber px-2 py-0.5 font-sans text-[11px] font-semibold normal-case tracking-normal text-amber-ink">On loan</span> : <span className="text-accent">● sealed</span>}
         </div>
       </div>
     </Link>
+  );
+}
+
+/** The card's "chip": a little grid of pixels, two of them carrying bits. */
+function Chip() {
+  return (
+    <svg viewBox="0 0 24 18" className="mt-0.5 h-[18px] w-6 flex-none" aria-hidden>
+      <rect x="0.5" y="0.5" width="23" height="17" rx="4" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.25)" />
+      {[0, 1, 2].map((x) => [0, 1].map((y) => <rect key={`${x}${y}`} x={4 + x * 6} y={4 + y * 6} width="4" height="4" rx="1" fill={(x + y) % 3 === 1 ? "var(--accent)" : "rgba(255,255,255,0.28)"} />))}
+    </svg>
   );
 }
 

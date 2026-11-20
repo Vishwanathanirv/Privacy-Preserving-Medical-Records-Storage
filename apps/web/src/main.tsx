@@ -4,7 +4,8 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "
 import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
-import { AuthProvider, DEMO, useAuth, useGo } from "./lib";
+import { AuthProvider, DEMO, refresh, useApi, useAuth, useGo, type RecordMeta } from "./lib";
+import { LendForm } from "./loans";
 import { Login } from "./pages/Login";
 import { DoctorHome } from "./pages/Doctor";
 import { RecordView } from "./pages/Record";
@@ -78,6 +79,44 @@ function RecordSheet() {
   );
 }
 
+/** The lending form as a sheet, for one of the patient's records. */
+function LendSheet() {
+  const { rid } = useParams();
+  const { user } = useAuth();
+  const go = useGo();
+  const mine = useApi<{ records: RecordMeta[] }>(user ? `/api/patients/${user.id}` : null);
+  const team = useApi<{ grants: { id: string }[] }>("/api/consent");
+  const records = mine.data?.records ?? [];
+  const record = rid === "first" ? records[0] : records.find((r) => r.id === rid);
+  return (
+    <Sheet label="Lend a record" onClose={() => go("/")} wide={false}>
+      {mine.data && !record && <p className="pt-6 text-muted">That record is not in your wallet.</p>}
+      {records.length > 1 && record && (
+        <div className="flex gap-2 overflow-x-auto pb-1 pr-12 pt-3" role="radiogroup" aria-label="Which card">
+          {records.map((r) => (
+            <button key={r.id} role="radio" aria-checked={r.id === record.id} onClick={() => go(`/lend/${r.id}`)} className={`flex-none rounded-full border px-3.5 py-1.5 text-[13px] font-medium ${r.id === record.id ? "border-amber text-amber" : "border-line-2 text-muted hover:text-ink"}`}>
+              {r.title.length > 30 ? `${r.title.slice(0, 29)}…` : r.title}
+            </button>
+          ))}
+        </div>
+      )}
+      {record && team.data && (
+        <LendForm
+          key={record.id}
+          record={record}
+          careTeam={team.data.grants.map((g) => g.id)}
+          onCancel={() => go("/")}
+          onLent={() => {
+            refresh();
+            go("/");
+          }}
+        />
+      )}
+      {!mine.data && <div className="skeleton mt-6 h-40" />}
+    </Sheet>
+  );
+}
+
 function HowSheet() {
   const go = useGo();
   return (
@@ -95,6 +134,7 @@ function useCommands(): Command[] {
       { id: "home", group: "Go to", label: user ? "My wallet" : "Start", hint: "The home screen", keys: "g", run: () => go("/") },
       { id: "how", group: "Go to", label: "How it works", hint: "Follow one real record from key to recovery", keys: "h", run: () => go("/how") },
     ];
+    if (user?.role === "patient") c.push({ id: "lend", group: "Do", label: "Lend a record to a doctor", hint: "Time-limited: it comes back by itself", keys: "l", run: () => go("/lend/first") });
     if (user) {
       c.push({ id: "signout", group: "Account", label: "Sign out", run: () => void logout() });
       if (DEMO) c.push({ id: "reset", group: "Account", label: "Reset demo data", hint: "Start this browser's sandbox again", run: () => void import("./demo/server").then(({ demo }) => demo.reset()) });
@@ -154,7 +194,9 @@ function Shell() {
 
       <Routes>
         {user.role === "patient" && <Route path="/records/:rid" element={<RecordSheet />} />}
+        {user.role === "patient" && <Route path="/lend/:rid" element={<LendSheet />} />}
         {user.role === "doctor" && <Route path="/patients/:id/records/:rid" element={<RecordSheet />} />}
+        {user.role === "doctor" && <Route path="/lent/:rid" element={<RecordSheet />} />}
         <Route path="/how" element={<HowSheet />} />
         <Route path="/" element={null} />
         {user.role === "doctor" && <Route path="/patients/:id" element={null} />}

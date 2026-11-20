@@ -33,6 +33,9 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   return data as T;
 }
 
+/** Tells every mounted view to reload its data. */
+export const refresh = () => window.dispatchEvent(new Event("medvault:refresh"));
+
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +54,10 @@ export function useApi<T>(path: string | null) {
   }, [path]);
   useEffect(() => {
     void load();
+    // Anything that changes data elsewhere on the screen calls refresh(), and every view reloads.
+    const again = () => void load();
+    window.addEventListener("medvault:refresh", again);
+    return () => window.removeEventListener("medvault:refresh", again);
   }, [load]);
   return { data, error, loading, reload: load, setData };
 }
@@ -94,6 +101,9 @@ export const ACTIONS: Record<string, string> = {
   "image.diff": "Viewed the change map",
   "file.original": "Downloaded the original scan",
   "user.create": "Created a user",
+  "loan.create": "Lent a record",
+  "loan.revoke": "Took back a loan",
+  "loan.expire": "Ended a loan when its time ran out",
   "system.seed": "Demo data created",
 };
 

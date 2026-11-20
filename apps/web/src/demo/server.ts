@@ -1,7 +1,7 @@
 import { scryptAsync } from "@noble/hashes/scrypt.js";
 import { bytesToHex, randomBytes } from "@noble/hashes/utils.js";
 import { GENESIS, auditHash, fromBase64, toBase64, type AuditEntry } from "@medvault/core";
-import type { RecordMeta, Role, User } from "../../../api/src/types";
+import type { Loan, RecordMeta, Role, User } from "../../../api/src/types";
 import { DEMO_PASSWORD, seedDemo } from "../../../api/src/seed";
 import { Service, type Result, type Session, type Store } from "../../../api/src/service";
 import { TransparencyLog } from "../../../api/src/translog";
@@ -19,7 +19,7 @@ import { Vault } from "../../../api/src/vault";
 type StoredRecord = Omit<RecordMeta, "authorName"> & { stegoPng: Uint8Array; wrappedKey: Uint8Array };
 type StoredUser = User & { passwordHash: string };
 type Grant = { patientId: string; doctorId: string; grantedAt: number };
-type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; audit: AuditEntry[]; session: string | null };
+type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; loans: Loan[]; audit: AuditEntry[]; session: string | null };
 
 const STORAGE_KEY = "medvault-demo-v4";
 const SCRYPT = { N: 32768, r: 8, p: 1 };
@@ -119,6 +119,26 @@ class MemoryDb implements Store {
   counts() {
     return { users: this.s.users.length, records: this.s.records.length, grants: this.s.grants.length, auditEntries: this.s.audit.length };
   }
+  insertLoan(l: Loan) {
+    this.s.loans.push(l);
+    this.save();
+  }
+  getLoan(id: string) {
+    return this.s.loans.find((l) => l.id === id) ?? null;
+  }
+  listLoans(by: { patientId?: string; doctorId?: string }) {
+    return this.s.loans.filter((l) => (by.patientId ? l.patientId === by.patientId : l.doctorId === by.doctorId)).sort((a, b) => b.createdAt - a.createdAt);
+  }
+  dueLoans(now: number) {
+    return this.s.loans.filter((l) => !l.endedAt && l.expiresAt <= now);
+  }
+  endLoan(id: string, reason: "expired" | "revoked", at: number) {
+    const l = this.getLoan(id);
+    if (!l || l.endedAt) return;
+    l.wrappedKey?.fill(0);
+    Object.assign(l, { wrappedKey: null, endedAt: at, endReason: reason });
+    this.save();
+  }
   audit(actor: string, action: string, target: string, detail = ""): AuditEntry {
     const last = this.s.audit.at(-1);
     const base = { seq: (last?.seq ?? 0) + 1, ts: Date.now(), actor, action, target, detail, prevHash: last?.hash ?? GENESIS };
@@ -152,7 +172,7 @@ class DemoServer {
 
   private async boot() {
     const saved = this.load();
-    const state: State = saved ?? { kek: toBase64(randomBytes(32)), logKey: toBase64(randomBytes(32)), users: [], records: [], grants: [], audit: [], session: null };
+    const state: State = saved ?? { kek: toBase64(randomBytes(32)), logKey: toBase64(randomBytes(32)), users: [], records: [], grants: [], loans: [], audit: [], session: null };
     this.db = new MemoryDb(state, () => this.scheduleSave());
     const vault = new Vault(this.db, fromBase64(state.kek));
     const tlog = new TransparencyLog(() => this.db.auditAll(), fromBase64(state.logKey));
@@ -170,6 +190,7 @@ class DemoServer {
       if (!raw) return null;
       const s = JSON.parse(raw);
       s.records = s.records.map((r: StoredRecord & { stegoPng: string; wrappedKey: string }) => ({ ...r, stegoPng: fromBase64(r.stegoPng), wrappedKey: fromBase64(r.wrappedKey) }));
+      s.loans = (s.loans ?? []).map((l: Loan & { wrappedKey: string | null }) => ({ ...l, wrappedKey: l.wrappedKey ? fromBase64(l.wrappedKey) : null }));
       return s as State;
     } catch {
       return null;
@@ -199,7 +220,7 @@ class DemoServer {
   private persist() {
     try {
       const s = this.db.s;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, records: s.records.map((r) => ({ ...r, stegoPng: toBase64(r.stegoPng), wrappedKey: toBase64(r.wrappedKey) })) }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, records: s.records.map((r) => ({ ...r, stegoPng: toBase64(r.stegoPng), wrappedKey: toBase64(r.wrappedKey) })), loans: s.loans.map((l) => ({ ...l, wrappedKey: l.wrappedKey ? toBase64(l.wrappedKey) : null })) }));
     } catch {
       // Storage full or unavailable (private window): the sandbox keeps working in memory.
     }

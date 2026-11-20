@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { GENESIS, auditHash, type AuditEntry } from "@medvault/core";
 
 export type { RecordMeta, Role, User } from "./types";
-import type { RecordMeta, Role, User } from "./types";
+import type { Loan, RecordMeta, Role, User } from "./types";
 
 type Row = Record<string, unknown>;
 
@@ -16,6 +16,7 @@ export class Db {
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA foreign_keys = ON;
+      PRAGMA secure_delete = ON; -- deleted data, such as an ended loan's key, is zeroed on disk
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('admin','doctor','patient')),
@@ -36,6 +37,16 @@ export class Db {
         doctor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         granted_at INTEGER NOT NULL, PRIMARY KEY (patient_id, doctor_id)
       );
+      CREATE TABLE IF NOT EXISTS loans (
+        id TEXT PRIMARY KEY,
+        record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+        patient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        doctor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+        wrapped_key BLOB, ended_at INTEGER, end_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS loans_doctor ON loans (doctor_id, ended_at);
+      CREATE INDEX IF NOT EXISTS loans_patient ON loans (patient_id, created_at);
       CREATE TABLE IF NOT EXISTS audit (
         seq INTEGER PRIMARY KEY, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL,
         target TEXT NOT NULL, detail TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL
@@ -119,6 +130,37 @@ export class Db {
   counts() {
     const c = (sql: string) => (this.db.prepare(sql).get() as { n: number }).n;
     return { users: c("SELECT COUNT(*) AS n FROM users"), records: c("SELECT COUNT(*) AS n FROM records"), grants: c("SELECT COUNT(*) AS n FROM grants"), auditEntries: c("SELECT COUNT(*) AS n FROM audit") };
+  }
+
+  // ---------- loans ----------
+  private loan = (r: Row): Loan => ({
+    id: r.id as string,
+    recordId: r.record_id as string,
+    patientId: r.patient_id as string,
+    doctorId: r.doctor_id as string,
+    createdAt: r.created_at as number,
+    expiresAt: r.expires_at as number,
+    wrappedKey: r.wrapped_key ? new Uint8Array(r.wrapped_key as Uint8Array) : null,
+    endedAt: (r.ended_at as number | null) ?? null,
+    endReason: (r.end_reason as Loan["endReason"]) ?? null,
+  });
+  insertLoan(l: Loan) {
+    this.db.prepare("INSERT INTO loans (id, record_id, patient_id, doctor_id, created_at, expires_at, wrapped_key, ended_at, end_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(l.id, l.recordId, l.patientId, l.doctorId, l.createdAt, l.expiresAt, l.wrappedKey, l.endedAt, l.endReason);
+  }
+  getLoan(id: string) {
+    const r = this.db.prepare("SELECT * FROM loans WHERE id = ?").get(id) as Row | undefined;
+    return r ? this.loan(r) : null;
+  }
+  listLoans(by: { patientId?: string; doctorId?: string }) {
+    const rows = by.patientId ? this.db.prepare("SELECT * FROM loans WHERE patient_id = ? ORDER BY created_at DESC").all(by.patientId) : this.db.prepare("SELECT * FROM loans WHERE doctor_id = ? ORDER BY created_at DESC").all(by.doctorId ?? "");
+    return (rows as Row[]).map(this.loan);
+  }
+  dueLoans(now: number) {
+    return (this.db.prepare("SELECT * FROM loans WHERE ended_at IS NULL AND expires_at <= ?").all(now) as Row[]).map(this.loan);
+  }
+  /** Ends a loan. Its wrapped key is removed (and zeroed on disk, see secure_delete), so the loan can never open the record again. */
+  endLoan(id: string, reason: "expired" | "revoked", at: number) {
+    this.db.prepare("UPDATE loans SET wrapped_key = NULL, ended_at = ?, end_reason = ? WHERE id = ? AND ended_at IS NULL").run(at, reason, id);
   }
 
   // ---------- audit chain ----------

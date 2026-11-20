@@ -14,6 +14,7 @@ import {
   decodePng,
   decryptField,
   decryptRecord,
+  deriveLoanKey,
   differenceMap,
   encryptField,
   embed,
@@ -21,13 +22,14 @@ import {
   encryptRecord,
   extract,
   phantom,
+  rewrapKey,
   pixelHash,
   psnr,
   sha256,
   ssim,
   type Gray,
 } from "@medvault/core";
-import type { RecordMeta, RecordStore, ScanInfo, StoredRecord } from "./types";
+import type { Loan, RecordMeta, RecordStore, ScanInfo, StoredRecord } from "./types";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -159,6 +161,22 @@ export class Vault {
     return { ...meta, authorName: author.name };
   }
 
+  /** The record's data key, re-wrapped under a new loan's key (see deriveLoanKey). */
+  wrapForLoan(terms: Omit<Loan, "wrappedKey" | "endedAt" | "endReason" | "createdAt">): Uint8Array {
+    const r = this.stored(terms.recordId);
+    const lk = deriveLoanKey(this.kek, terms);
+    try {
+      return rewrapKey(this.kek, lk, terms.recordId, r.wrappedKey);
+    } finally {
+      lk.fill(0);
+    }
+  }
+
+  private loanKey(loan: Loan) {
+    if (!loan.wrappedKey) throw new VaultError(404, "This loan has ended and its key was destroyed");
+    return { kek: deriveLoanKey(this.kek, loan), wrappedKey: loan.wrappedKey };
+  }
+
   /** Pixels of a stored file, whatever its format. */
   private pixels(r: StoredRecord, file: Uint8Array): Gray {
     if (r.scan?.format === "dicom") {
@@ -172,9 +190,9 @@ export class Vault {
    * Opens a record from its stored file: verifies the file hash, extracts the payload, decrypts it
    * and checks the restored scan (for DICOM, the whole rebuilt file) matches the original's hash.
    */
-  open(recordId: string, stegoOverride?: Uint8Array) {
+  open(recordId: string, opts: { file?: Uint8Array; loan?: Loan } = {}) {
     const r = this.stored(recordId);
-    const stored = stegoOverride ?? r.stegoPng;
+    const stored = opts.file ?? r.stegoPng;
     const fileIntact = sha256(stored) === r.stegoSha256;
     let extracted;
     try {
@@ -186,9 +204,11 @@ export class Vault {
     if (embeddedId !== recordId) throw new VaultError(409, "Tampering detected: this image carries a different record", "binding");
     let record: ClinicalRecord;
     try {
-      record = decryptRecord<ClinicalRecord>(this.kek, recordId, r.patientId, { ciphertext, wrappedKey: r.wrappedKey });
+      // A doctor reading through a loan opens the data key with the loan's key, not the master key.
+      const key = opts.loan ? this.loanKey(opts.loan) : { kek: this.kek, wrappedKey: r.wrappedKey };
+      record = decryptRecord<ClinicalRecord>(key.kek, recordId, r.patientId, { ciphertext, wrappedKey: key.wrappedKey });
     } catch (e) {
-      if (e instanceof CryptoError) throw new VaultError(409, `Tampering detected: ${e.message}`, "decrypt");
+      if (e instanceof CryptoError) throw new VaultError(409, opts.loan ? "This loan's key does not open the record: its terms were changed after it was made" : `Tampering detected: ${e.message}`, "decrypt");
       throw e;
     }
     let originalFile: Uint8Array | null = null;
@@ -212,24 +232,24 @@ export class Vault {
   }
 
   /** An 8-bit PNG for viewing: the stored scan, the restored scan, or a map of changed pixels. */
-  image(recordId: string, variant: "stego" | "original" | "diff"): Uint8Array {
+  image(recordId: string, variant: "stego" | "original" | "diff", loan?: Loan): Uint8Array {
     const r = this.stored(recordId);
     const stego = this.pixels(r, r.stegoPng);
     const view = (g: Gray) => encodePng(toDisplay(g, r.scan?.window));
     if (variant === "stego") return r.scan?.format === "dicom" || stego.data instanceof Uint16Array ? view(stego) : r.stegoPng;
-    const { original } = this.open(recordId);
+    const { original } = this.open(recordId, { loan });
     if (variant === "original") return original.data instanceof Uint16Array || r.scan?.window ? view(original) : encodePng(original);
     return encodePng(differenceMap(original, stego));
   }
 
   /** Files to download: the stored (stego, de-identified) file, or the restored original. */
-  file(recordId: string, kind: "stored" | "original"): { bytes: Uint8Array; filename: string; type: string } {
+  file(recordId: string, kind: "stored" | "original", loan?: Loan): { bytes: Uint8Array; filename: string; type: string } {
     const r = this.stored(recordId);
     const dicom = r.scan?.format === "dicom";
     const ext = dicom ? "dcm" : "png";
     const type = dicom ? "application/dicom" : "image/png";
     if (kind === "stored") return { bytes: r.stegoPng, filename: `medvault-${recordId.slice(0, 8)}-stored.${ext}`, type };
-    const opened = this.open(recordId);
+    const opened = this.open(recordId, { loan });
     return { bytes: opened.originalFile ?? encodePng(opened.original), filename: `medvault-${recordId.slice(0, 8)}-original.${ext}`, type };
   }
 
@@ -244,7 +264,7 @@ export class Vault {
     img.data[i] = img.data[i] > mid ? img.data[i] - 3 : img.data[i] + 3;
     const tampered = r.scan?.format === "dicom" ? writePixels(r.stegoPng, parseDicom(r.stegoPng), img) : encodePng(img);
     try {
-      const r2 = this.open(recordId, tampered);
+      const r2 = this.open(recordId, { file: tampered });
       // The record may still decrypt if the changed pixel carried no payload bit, but the hashes catch it.
       if (!r2.verification.fileIntact || !r2.verification.restoredExact) {
         return { detected: true, changedPixel: { x, y }, stage: "hash", message: "Tampering detected: the image no longer matches its SHA-256 fingerprint" };

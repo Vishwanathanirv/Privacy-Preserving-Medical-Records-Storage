@@ -1,4 +1,5 @@
 import { ctPhantom, writeDicom } from "@medvault/core";
+import { lend } from "./service";
 import type { SeedStore } from "./types";
 import type { Vault } from "./vault";
 
@@ -54,5 +55,7 @@ export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
     ct,
   );
   db.audit(meera.id, "record.create", `record:${r3.id}`, `patient:${karthik.id}`);
+  // Anitha lends her head CT to Dr. Rao, who is not on her care team, for a second opinion.
+  lend(db, vault, { recordId: r1.id, patientId: anitha.id, doctorId: arjun.id, minutes: 120, now: Date.now() });
   void admin;
 }
