@@ -127,3 +127,22 @@ test("a patient issues a new emergency card and its one-time code opens it", asy
   await page.getByRole("button", { name: "Break the glass" }).click();
   await expect(page.getByText(/Logged as entry #\d+/)).toBeVisible({ timeout: 30_000 });
 });
+
+test("the first screen pitches the idea, and 'How it works' follows a real record to a bit-exact recovery", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /Your scan is the envelope/ })).toBeVisible();
+  await expect(page.getByText(/An encrypted record \(\d+ bytes\) is hidden in this X-ray/)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: /How it works/ }).click();
+  const how = page.getByRole("dialog", { name: "How MedVault works" });
+  await expect(how.getByRole("button", { name: /Next: Encrypt/ })).toBeVisible({ timeout: 30_000 });
+  await how.getByRole("button", { name: /Next: Encrypt/ }).click();
+  await how.getByRole("button", { name: "Change one bit of the ciphertext" }).click();
+  await expect(how.getByText(/Integrity check failed/)).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(how.getByText(/guess ⌊/)).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await how.getByRole("button", { name: "Push the expiry back by 1 ms" }).click();
+  await expect(how.getByText(/Won't open/)).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(how.getByText(/0 of 1,000,000 pixels differ/)).toBeVisible();
+});
