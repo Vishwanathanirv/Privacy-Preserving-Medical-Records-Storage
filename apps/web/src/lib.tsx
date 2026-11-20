@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 
 export type Role = "admin" | "doctor" | "patient";
 export type User = { id: string; name: string; email: string; role: Role };
@@ -151,4 +152,10 @@ export function saveFile(bytes: Uint8Array, type: string, filename: string) {
 export async function downloadRecordFile(recordId: string, kind: "stored" | "original") {
   const f = await fetchBytes(`/api/records/${recordId}/file/${kind}`);
   saveFile(f.bytes, f.type, f.filename ?? `medvault-${recordId.slice(0, 8)}-${kind}`);
+}
+
+/** Navigates inside a view transition where the browser supports it. */
+export function useGo() {
+  const nav = useNavigate();
+  return useCallback((to: string) => void nav(to, { viewTransition: true }), [nav]);
 }

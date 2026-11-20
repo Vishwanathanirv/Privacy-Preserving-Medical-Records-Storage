@@ -1,6 +1,26 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { date, useRecordImage, type RecordMeta } from "./lib";
+
+/** The MedVault mark: a wallet card whose pixels carry a few hidden bits. */
+export function Mark({ size = 32 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden className="flex-none">
+      <rect width="32" height="32" rx="8" fill="#0b0d10" />
+      <rect x="4.5" y="7.5" width="23" height="17" rx="4" fill="none" stroke="var(--accent)" strokeWidth="1.8" />
+      <g fill="#3a4148">
+        <rect x="8.5" y="11.5" width="3" height="3" rx=".6" />
+        <rect x="14.5" y="11.5" width="3" height="3" rx=".6" />
+        <rect x="8.5" y="17.5" width="3" height="3" rx=".6" />
+        <rect x="20.5" y="17.5" width="3" height="3" rx=".6" />
+      </g>
+      <g fill="var(--accent)">
+        <rect x="20.5" y="11.5" width="3" height="3" rx=".6" />
+        <rect x="14.5" y="17.5" width="3" height="3" rx=".6" />
+      </g>
+    </svg>
+  );
+}
 
 export function Panel({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -115,8 +135,14 @@ function WalletCard({ r, to }: { r: RecordMeta; to: string }) {
 
 /** A panel that slides up over the home screen; Esc or the close button goes back. */
 export function Sheet({ label, onClose, children, wide = true }: { label: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const before = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+    return () => before?.focus?.();
+  }, []);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector('[aria-label="Command palette"]') && onClose();
     window.addEventListener("keydown", k);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -127,13 +153,15 @@ export function Sheet({ label, onClose, children, wide = true }: { label: string
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={label}>
-      <button className="fade absolute inset-0 bg-black/40 backdrop-blur-[2px]" aria-label="Close" onClick={onClose} />
-      <div className={`sheet-up absolute inset-x-0 bottom-0 top-3 mx-auto overflow-y-auto rounded-t-[28px] border border-line bg-bg shadow-[var(--shadow)] sm:inset-x-4 sm:top-6 ${wide ? "max-w-6xl" : "max-w-2xl"}`}>
-        <div className="sticky top-0 z-10 flex justify-center bg-gradient-to-b from-[var(--bg)] to-transparent pb-2 pt-2.5">
-          <span className="h-1.5 w-12 rounded-full bg-line" aria-hidden />
+      <button className="fade absolute inset-0 bg-black/70 backdrop-blur-[3px]" aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div ref={panel} tabIndex={-1} className={`rise absolute inset-x-0 bottom-0 top-3 mx-auto overflow-y-auto rounded-t-[28px] border border-line-2 bg-bg-2 shadow-[var(--shadow)] outline-none sm:inset-x-4 sm:top-6 ${wide ? "max-w-6xl" : "max-w-2xl"}`}>
+        <div className="sticky top-0 z-10 flex justify-center bg-gradient-to-b from-[var(--bg-2)] to-transparent pb-2 pt-2.5">
+          <span className="h-1.5 w-12 rounded-full bg-line-2" aria-hidden />
         </div>
         <button className="btn absolute right-4 top-4 z-20 h-9 w-9 px-0" onClick={onClose} aria-label="Close">
-          ✕
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
+            <path d="M3.5 3.5l9 9m0-9-9 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
         </button>
         <div className="px-4 pb-10 sm:px-8">{children}</div>
       </div>

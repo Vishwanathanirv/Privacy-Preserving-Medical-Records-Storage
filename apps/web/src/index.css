@@ -1,54 +1,70 @@
 @import "tailwindcss";
 
 /*
- * MedVault is a health wallet. Records are cards you flip through, each one's art is the scan
- * it is sealed inside, and opening one slides it up as a sheet. There is no menu bar: each
- * person gets one home screen with everything they can do, and the rest lives behind their
- * avatar. Soft surfaces and a rose accent; the scans stay on true black so they read clearly.
+ * MedVault is a health wallet you hold and lend. One theme, dark: scans read best on black, and
+ * the wallet sits on a graphite surface like a light box that has been switched off. Colour carries
+ * meaning and nothing else: phosphor mint for "sealed / verified", amber for time (a loan that will
+ * expire), coral for emergency and failure.
  */
 :root {
-  --bg: #110f17;
-  --panel: #1a1722;
-  --panel-2: #221f2c;
-  --line: #2e2a3b;
-  --ink: #f0eef7;
-  --muted: #aaa5c0;
-  --faint: #75708c;
-  --accent: #ff6b92;
-  --accent-2: #a48bff;
-  --accent-ink: #2a0712;
-  --accent-soft: rgba(255, 107, 146, 0.13);
-  --ok: #4fd69b;
-  --ok-soft: rgba(79, 214, 155, 0.12);
-  --warn: #ffbf5c;
-  --warn-soft: rgba(255, 191, 92, 0.12);
-  --bad: #ff7a85;
-  --bad-soft: rgba(255, 122, 133, 0.13);
-  --film: #000000;
-  --blob-1: rgba(255, 107, 146, 0.1);
-  --blob-2: rgba(164, 139, 255, 0.1);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 24px 50px -24px rgba(0, 0, 0, 0.9);
+  --bg: #07080a;
+  --bg-2: #0b0d10;
+  --panel: #111317;
+  --panel-2: #171a1f;
+  --panel-3: #1e2228;
+  --line: #242930;
+  --line-2: #323840;
+  --ink: #eef2ef;
+  --muted: #a4aca8;
+  --faint: #6f7773;
+  --accent: #7df0c2;
+  --accent-ink: #03140d;
+  --accent-soft: rgba(125, 240, 194, 0.1);
+  --amber: #ffc46b;
+  --amber-ink: #1d1000;
+  --amber-soft: rgba(255, 196, 107, 0.11);
+  --coral: #ff6f61;
+  --coral-ink: #200403;
+  --coral-soft: rgba(255, 111, 97, 0.12);
+  --sky: #9ccaff;
+  --film: #000;
+  --film-ink: #e9efec;
+  --overlay: #d8ffe9;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 60px -28px rgba(0, 0, 0, 0.95);
+  /* A spring that overshoots a little and settles, for things that move into place. */
+  --spring: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%, 1.001 85.5%, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   color-scheme: dark;
 }
+
 @theme inline {
   --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
   --color-panel: var(--panel);
   --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
   --color-line: var(--line);
+  --color-line-2: var(--line-2);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-accent: var(--accent);
-  --color-accent-2: var(--accent-2);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
-  --color-ok: var(--ok);
-  --color-ok-soft: var(--ok-soft);
-  --color-warn: var(--warn);
-  --color-warn-soft: var(--warn-soft);
-  --color-bad: var(--bad);
-  --color-bad-soft: var(--bad-soft);
-  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-amber-soft: var(--amber-soft);
+  --color-coral: var(--coral);
+  --color-coral-ink: var(--coral-ink);
+  --color-coral-soft: var(--coral-soft);
+  --color-sky: var(--sky);
+  --color-ok: var(--accent);
+  --color-ok-soft: var(--accent-soft);
+  --color-warn: var(--amber);
+  --color-warn-soft: var(--amber-soft);
+  --color-bad: var(--coral);
+  --color-bad-soft: var(--coral-soft);
+  --font-sans: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
 }
 
@@ -61,45 +77,74 @@ body,
 }
 body {
   font-family: var(--font-sans);
+  font-variation-settings: "opsz" 14;
   -webkit-font-smoothing: antialiased;
-  /* Two soft colour washes behind everything. */
-  background-image: radial-gradient(40rem 30rem at 85% -10%, var(--blob-1), transparent 70%), radial-gradient(36rem 28rem at -10% 110%, var(--blob-2), transparent 70%);
+  text-rendering: optimizeLegibility;
+  /* A faint dot grid, like the surface of a light box. */
+  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 22px 22px;
   background-attachment: fixed;
+}
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Display type: Bricolage's optical size and width axes, set wide and tight for headlines. */
+.display {
+  font-variation-settings: "opsz" 96, "wdth" 92;
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 @layer components {
   .panel {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 24px;
+    border-radius: 22px;
     box-shadow: var(--shadow);
   }
   .label {
     font-size: 12.5px;
-    font-weight: 650;
+    font-weight: 600;
     color: var(--muted);
   }
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
-    height: 2.4rem;
+    gap: 0.5rem;
+    height: 2.5rem;
     padding: 0 1.1rem;
     border-radius: 999px;
-    font-size: 0.9rem;
-    font-weight: 650;
-    border: 1px solid var(--line);
-    background: var(--panel);
+    font-size: 0.92rem;
+    font-weight: 600;
+    border: 1px solid var(--line-2);
+    background: var(--panel-2);
     color: var(--ink);
     cursor: pointer;
-    transition: transform 0.12s, border-color 0.12s, background 0.12s;
+    transition:
+      transform 0.35s var(--spring),
+      border-color 0.15s,
+      background 0.15s;
   }
   .btn:hover:not(:disabled) {
-    border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+    border-color: color-mix(in oklab, var(--accent) 45%, var(--line-2));
+    background: var(--panel-3);
   }
   .btn:active:not(:disabled) {
-    transform: scale(0.97);
+    transform: scale(0.96);
   }
   .btn:disabled {
     opacity: 0.45;
@@ -107,46 +152,88 @@ body {
   }
   .btn-accent {
     border-color: transparent;
-    color: #fff;
-    background: linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 60%, var(--accent-2)));
+    color: var(--accent-ink);
+    background: var(--accent);
+    box-shadow: 0 0 0 1px rgba(125, 240, 194, 0.25), 0 10px 30px -12px rgba(125, 240, 194, 0.55);
   }
   .btn-accent:hover:not(:disabled) {
     border-color: transparent;
-    filter: brightness(1.06);
+    background: color-mix(in oklab, var(--accent) 88%, white);
+  }
+  .btn-amber {
+    border-color: transparent;
+    color: var(--amber-ink);
+    background: var(--amber);
+  }
+  .btn-amber:hover:not(:disabled) {
+    border-color: transparent;
+    background: color-mix(in oklab, var(--amber) 88%, white);
+  }
+  .btn-coral {
+    border-color: transparent;
+    color: var(--coral-ink);
+    background: var(--coral);
+  }
+  .btn-coral:hover:not(:disabled) {
+    border-color: transparent;
+    background: color-mix(in oklab, var(--coral) 88%, white);
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
   }
   .btn-danger {
-    color: var(--bad);
-    background: var(--bad-soft);
+    color: var(--coral);
+    background: var(--coral-soft);
     border-color: transparent;
   }
   .field {
-    height: 2.75rem;
+    height: 2.8rem;
     width: 100%;
     border-radius: 14px;
-    border: 1px solid var(--line);
-    background: var(--panel-2);
+    border: 1px solid var(--line-2);
+    background: var(--bg-2);
     color: var(--ink);
-    padding: 0 0.9rem;
+    padding: 0 0.95rem;
     font-size: 0.95rem;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .field::placeholder {
+    color: var(--faint);
   }
   .field:focus {
     outline: none;
     border-color: var(--accent);
-    background: var(--panel);
     box-shadow: 0 0 0 4px var(--accent-soft);
   }
   textarea.field {
     height: auto;
-    padding: 0.7rem 0.9rem;
+    padding: 0.75rem 0.95rem;
   }
-  /* A scan: true black behind the image, rounded like everything else. */
+  .kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.45rem;
+    height: 1.45rem;
+    padding: 0 0.35rem;
+    border-radius: 6px;
+    border: 1px solid var(--line-2);
+    border-bottom-width: 2px;
+    background: var(--panel-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  /* A scan: true black behind the image. */
   .film {
     position: relative;
     background: var(--film);
     color: var(--film-ink);
-    border-radius: 20px;
+    border-radius: 18px;
   }
-  /* Scanner text in the corners of the image. */
+  /* Scanner text in the corners of an image. */
   .overlay {
     position: absolute;
     font-family: var(--font-mono);
@@ -156,10 +243,26 @@ body {
     text-shadow: 0 1px 2px #000;
     pointer-events: none;
   }
+  .skeleton {
+    background: linear-gradient(100deg, var(--panel-2) 30%, var(--panel-3) 50%, var(--panel-2) 70%);
+    background-size: 300% 100%;
+    animation: shimmer 1.4s linear infinite;
+    border-radius: 14px;
+  }
 }
+
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 3px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
 }
 
 /* Decrypting: a scan line passes once over a newly opened record. */
@@ -177,20 +280,20 @@ body {
   position: absolute;
   inset-inline: 0;
   top: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, var(--overlay), transparent);
-  box-shadow: 0 0 14px var(--overlay);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  box-shadow: 0 0 16px var(--accent);
   animation: scanline 1.4s ease-in forwards;
   pointer-events: none;
 }
-@keyframes sheet-up {
+@keyframes rise {
   from {
-    transform: translateY(40px);
+    transform: translateY(28px) scale(0.985);
     opacity: 0;
   }
 }
-.sheet-up {
-  animation: sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+.rise {
+  animation: rise 0.6s var(--spring) both;
 }
 @keyframes fade {
   from {
@@ -198,14 +301,63 @@ body {
   }
 }
 .fade {
-  animation: fade 0.2s ease-out;
+  animation: fade 0.25s ease-out both;
 }
+@keyframes pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+.pop {
+  animation: pop 0.5s var(--spring) both;
+}
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 111, 97, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(255, 111, 97, 0);
+  }
+}
+.pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/* Page changes cross-fade and slide a little (View Transitions API, where supported). */
+::view-transition-old(root) {
+  animation: 0.18s ease-in both vt-out;
+}
+::view-transition-new(root) {
+  animation: 0.42s var(--ease-out) both vt-in;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
   .scanline {
     display: none;
   }
-  .sheet-up,
-  .fade {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
     animation: none;
   }
 }
