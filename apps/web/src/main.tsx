@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "
 import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
-import { AuthProvider, DEMO, refresh, useApi, useAuth, useGo, type RecordMeta } from "./lib";
+import { AuthProvider, DEMO, api, refresh, useApi, useAuth, useGo, type RecordMeta } from "./lib";
 import { LendForm } from "./loans";
 import { Login } from "./pages/Login";
 import { DoctorHome } from "./pages/Doctor";
@@ -117,6 +117,25 @@ function LendSheet() {
   );
 }
 
+/** "/proof": opens the first record you can see and runs the bit-exact proof on it. */
+function ProofJump() {
+  const { user } = useAuth();
+  const go = useGo();
+  useEffect(() => {
+    void (async () => {
+      if (user?.role === "patient") {
+        const r = await api<{ records: RecordMeta[] }>(`/api/patients/${user.id}`);
+        go(r.records[0] ? `/records/${r.records[0].id}?proof=1` : "/");
+      } else if (user?.role === "doctor") {
+        const p = (await api<{ patients: { id: string }[] }>("/api/patients")).patients[0];
+        const r = p ? await api<{ records: RecordMeta[] }>(`/api/patients/${p.id}`) : null;
+        go(p && r?.records[0] ? `/patients/${p.id}/records/${r.records[0].id}?proof=1` : "/");
+      } else go("/");
+    })();
+  }, [user, go]);
+  return null;
+}
+
 function HowSheet() {
   const go = useGo();
   return (
@@ -134,6 +153,7 @@ function useCommands(): Command[] {
       { id: "home", group: "Go to", label: user ? "My wallet" : "Start", hint: "The home screen", keys: "g", run: () => go("/") },
       { id: "how", group: "Go to", label: "How it works", hint: "Follow one real record from key to recovery", keys: "h", run: () => go("/how") },
     ];
+    if (user?.role === "patient" || user?.role === "doctor") c.push({ id: "proof", group: "Do", label: "Prove a record is bit-exact", hint: "Recover the scan in your browser and match it to the signed log", keys: "p", run: () => go("/proof") });
     if (user?.role === "patient") c.push({ id: "lend", group: "Do", label: "Lend a record to a doctor", hint: "Time-limited: it comes back by itself", keys: "l", run: () => go("/lend/first") });
     if (user) {
       c.push({ id: "signout", group: "Account", label: "Sign out", run: () => void logout() });
@@ -159,7 +179,7 @@ function Shell() {
         <Palette commands={commands} />
       </>
     );
-  const how = loc.pathname === "/how";
+  const how = loc.pathname === "/how" || loc.pathname === "/proof";
 
   let home: ReactNode;
   if (user.role === "doctor")
@@ -198,6 +218,7 @@ function Shell() {
         {user.role === "doctor" && <Route path="/patients/:id/records/:rid" element={<RecordSheet />} />}
         {user.role === "doctor" && <Route path="/lent/:rid" element={<RecordSheet />} />}
         <Route path="/how" element={<HowSheet />} />
+        <Route path="/proof" element={<ProofJump />} />
         <Route path="/" element={null} />
         {user.role === "doctor" && <Route path="/patients/:id" element={null} />}
         <Route path="*" element={how ? null : <Navigate to="/" replace />} />

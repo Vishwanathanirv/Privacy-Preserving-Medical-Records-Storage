@@ -1,5 +1,5 @@
 import { ctPhantom, writeDicom } from "@medvault/core";
-import { lend } from "./service";
+import { lend, sealDetail } from "./service";
 import type { SeedStore } from "./types";
 import type { Vault } from "./vault";
 
@@ -30,7 +30,7 @@ export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
     medications: ["Paracetamol 500 mg as needed (max 3 g/day)"],
     vitals: { bp: "118/76", pulse: 72, temperature: 36.8, spo2: 99 },
   });
-  db.audit(meera.id, "record.create", `record:${r1.id}`, `patient:${anitha.id}`);
+  db.audit(meera.id, "record.create", `record:${r1.id}`, sealDetail(r1));
   const r2 = vault.create(karthik.id, arjun, {
     title: "Head CT: chronic sinusitis assessment",
     diagnosis: "Mucosal thickening of the maxillary sinuses consistent with chronic sinusitis.",
@@ -38,7 +38,7 @@ export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
     medications: ["Fluticasone nasal spray 50 mcg, 2 sprays each nostril daily", "Saline nasal irrigation twice daily"],
     vitals: { bp: "126/82", pulse: 78, temperature: 37.1, spo2: 98 },
   });
-  db.audit(arjun.id, "record.create", `record:${r2.id}`, `patient:${karthik.id}`);
+  db.audit(arjun.id, "record.create", `record:${r2.id}`, sealDetail(r2));
   // A 12-bit DICOM CT slice, as a scanner would send it. Its header names the patient; the vault
   // strips that from the stored file and keeps it only inside the encrypted record.
   const ct = writeDicom({ pixels: ctPhantom(384, 7), width: 384, height: 384, patientName: "Subramanian^Karthik", patientId: "KS-20260412", birthDate: "19910317", study: "CT HEAD WITHOUT CONTRAST" });
@@ -54,7 +54,7 @@ export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
     },
     ct,
   );
-  db.audit(meera.id, "record.create", `record:${r3.id}`, `patient:${karthik.id}`);
+  db.audit(meera.id, "record.create", `record:${r3.id}`, sealDetail(r3));
   // Anitha lends her head CT to Dr. Rao, who is not on her care team, for a second opinion.
   lend(db, vault, { recordId: r1.id, patientId: anitha.id, doctorId: arjun.id, minutes: 120, now: Date.now() });
   void admin;

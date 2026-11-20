@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
-import { auditLeaf, ctPhantom, decodePng, encodePng, embed, fromHex, parseDicom, phantom, pixelHash, verifyConsistency, verifyInclusion, verifyTreeHead, writeDicom, type AuditEntry } from "@medvault/core";
+import { auditLeaf, ctPhantom, decodePng, encodePng, embed, fromHex, parseDicom, phantom, pixelHash, recover, verifyConsistency, verifyInclusion, verifyTreeHead, writeDicom, type AuditEntry } from "@medvault/core";
 import { buildApp } from "../src/app";
 import type { Db } from "../src/db";
 import { DEMO_PASSWORD } from "../src/seed";
@@ -241,5 +241,28 @@ describe("audit chain", () => {
     // Every signed head covering entry 3 no longer matches the log rebuilt from storage.
     expect(v.transparency.firstBrokenHead).not.toBeNull();
     expect(v.transparency.firstBrokenHead.size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("bit-exact proof", () => {
+  it("lets a viewer recover the pixels from the stored file and match them to the fingerprint sealed in the signed log", async () => {
+    const meera = await login("meera@medvault.dev");
+    const pid = db.findByEmail("karthik@medvault.dev")!.id;
+    for (const rec of db.listRecords(pid)) {
+      const file = new Uint8Array((await app.inject({ url: `/api/records/${rec.id}/file/stored`, headers: as(meera.cookie) })).rawPayload);
+      const r = recover(file);
+      expect(r.changedPixels).toBeGreaterThan(0);
+      const { head, publicKey } = json(await app.inject({ url: "/api/log/head", headers: as(meera.cookie) }));
+      expect(verifyTreeHead(publicKey, head)).toBe(true);
+      const seal = json(await app.inject({ url: `/api/records/${rec.id}/seal?size=${head.size}`, headers: as(meera.cookie) }));
+      expect(seal.entry.detail).toContain(`pixels:${r.fingerprint}`);
+      expect(verifyInclusion(auditLeaf(seal.entry), seal.index, seal.size, seal.proof.map(fromHex), fromHex(head.root))).toBe(true);
+      // One flipped pixel gives a different fingerprint.
+      r.restored.data[0] ^= 1;
+      expect(pixelHash(r.restored)).not.toBe(r.fingerprint);
+    }
+    const arjun = await login("arjun@medvault.dev");
+    const anithaRec = db.listRecords(db.findByEmail("anitha@medvault.dev")!.id)[0].id;
+    expect((await app.inject({ url: `/api/records/${anithaRec}/seal?size=1`, headers: as(arjun.cookie) })).statusCode).toBe(404);
   });
 });

@@ -39,6 +39,13 @@ export interface Store {
   endLoan(id: string, reason: "expired" | "revoked", at: number): void;
 }
 
+/**
+ * The detail of a record.create entry. It commits the original pixels' fingerprint to the signed
+ * log at the moment the record is sealed, so a later recovery can be checked against something
+ * no one can quietly change, not even the server.
+ */
+export const sealDetail = (m: { patientId: string; pixelSha256?: string }) => `patient:${m.patientId}|pixels:${m.pixelSha256}`;
+
 /** How long a record can be lent for, in minutes: from 1 minute up to 30 days. */
 export const LOAN_MINUTES = { min: 1, max: 30 * 24 * 60 };
 
@@ -235,7 +242,7 @@ export class Service {
       const rec = RecordInput.parse(typeof fields.record === "string" ? JSON.parse(fields.record) : fields);
       if (c.file && c.file.length > 25 * 1024 * 1024) throw new HttpError(413, "File is larger than 25 MB.");
       const meta = this.vault.create(id, { id: s.sub, name: s.name }, rec, c.file?.length ? c.file : undefined);
-      db.audit(s.sub, "record.create", `record:${meta.id}`, `patient:${id}`);
+      db.audit(s.sub, "record.create", `record:${meta.id}`, sealDetail(meta));
       return ok({ record: meta });
     }
     if ((m = path.match(/^\/api\/records\/([^/]+)(\/.*)?$/))) {
@@ -274,6 +281,17 @@ export class Service {
         return { status: 200, file: { bytes: f.bytes, type: f.type, filename: f.filename } };
       }
       if (method === "POST" && rest === "/tamper-test") return ok(this.vault.tamperTest(id));
+      if (method === "GET" && rest === "/seal") {
+        // The log entry that sealed this record, with a proof that it is in the signed log of the given size.
+        const size = z.coerce.number().int().min(1).parse(q.get("size"));
+        const entry = db.auditAll().find((e) => e.action === "record.create" && e.target === `record:${id}`);
+        if (!entry) throw new HttpError(404, "No seal entry for this record");
+        try {
+          return ok({ entry, ...this.tlog.inclusion(entry.seq, size) });
+        } catch (e) {
+          throw new HttpError(400, (e as Error).message);
+        }
+      }
       throw new HttpError(404, "Not found");
     }
     if (method === "POST" && path === "/api/verify") {

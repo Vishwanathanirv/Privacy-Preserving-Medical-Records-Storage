@@ -154,6 +154,7 @@ export class Vault {
       height: cover.height,
       stegoSha256: sha256(stored),
       originalSha256,
+      pixelSha256: pixelHash(cover),
       stats: { ...result.stats, psnr: +psnr(cover, result.image).toFixed(2), ssim: +ssim(cover, result.image).toFixed(4), embedMs },
       scan: scanInfo,
     };

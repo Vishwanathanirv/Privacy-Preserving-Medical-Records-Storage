@@ -13,6 +13,8 @@ export type RecordMeta = {
   height: number;
   stegoSha256: string;
   originalSha256: string;
+  /** SHA-256 of the original pixels (for PNG the same as originalSha256). Also written into the signed audit log when the record is sealed. */
+  pixelSha256?: string;
   stats: { layers: number; payloadBytes: number; bitsPerPixel: number; psnr: number; ssim: number; maxPixelChange: number; embedMs: number; thresholds?: number[] };
   /** What kind of file is stored. Absent on records made before DICOM support (8-bit PNG). */
   scan?: ScanInfo;

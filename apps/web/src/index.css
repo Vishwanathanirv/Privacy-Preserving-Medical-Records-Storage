@@ -251,7 +251,7 @@ body {
   }
 }
 
-:focus-visible {
+:focus-visible:not([tabindex="-1"]) {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }

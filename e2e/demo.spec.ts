@@ -91,3 +91,15 @@ test("a patient lends a record for 15 minutes, the doctor opens it, and taking i
   await signInAs(page, "Dr. Arjun Rao");
   await expect(page.getByRole("list", { name: "Records lent to you" })).toHaveCount(0);
 });
+
+test("the browser proves a restored scan is bit-exact against the fingerprint in the signed log", async ({ page }) => {
+  await signInAs(page, "Anitha Kumar");
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Command" }).fill("bit-exact");
+  await page.keyboard.press("Enter");
+  const sheet = page.getByRole("dialog", { name: "Record" });
+  await expect(sheet.getByText("Identical to the fingerprint sealed in the signed log")).toBeVisible({ timeout: 30_000 });
+  await expect(sheet.getByText(/Bit-exact: all [\d,]+ pixels match the original/)).toBeVisible();
+  await sheet.getByRole("button", { name: "Flip one pixel and look again" }).click();
+  await expect(sheet.getByText(/of 64 digits changed/)).toBeVisible();
+});

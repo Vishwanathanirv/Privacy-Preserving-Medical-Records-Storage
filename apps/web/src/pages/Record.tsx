@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, date, downloadRecordFile, short, useApi, useAuth, useGo, useRecordImage, type Clinical, type ImageVariant, type RecordMeta } from "../lib";
 import { left, useNow } from "../loans";
+import { BitExactProof } from "../proof";
 import { Check, Notice, PageHeader, Panel } from "../ui";
 
 type Opened = { meta: RecordMeta; record: Clinical; verification: { fileIntact: boolean; restoredExact: boolean; layers: number }; loan: { id: string; expiresAt: number } | null };
@@ -198,6 +199,9 @@ export function RecordView({ id }: { id: string }) {
             </p>
           </Panel>
         </div>
+      </div>
+      <div className="mt-5" id="proof">
+        <BitExactProof meta={meta} autorun={new URLSearchParams(location.search).has("proof")} />
       </div>
     </>
   );
