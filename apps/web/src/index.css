@@ -16,7 +16,7 @@
   --line-2: #323840;
   --ink: #eef2ef;
   --muted: #a4aca8;
-  --faint: #6f7773;
+  --faint: #838a86;
   --accent: #7df0c2;
   --accent-ink: #03140d;
   --accent-soft: rgba(125, 240, 194, 0.1);
@@ -100,25 +100,24 @@ body {
   color: var(--accent-ink);
 }
 
-/* Display type: Bricolage's optical size and width axes, set wide and tight for headlines. */
-.display {
-  font-variation-settings: "opsz" 96, "wdth" 92;
-  font-weight: 720;
-  letter-spacing: -0.035em;
-  line-height: 0.95;
-}
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-.tnum {
-  font-variant-numeric: tabular-nums;
-}
-
 @layer components {
+  /* Display type: Bricolage's optical size and width axes, set wide and tight for headlines. */
+  .display {
+    font-variation-settings: "opsz" 96, "wdth" 92;
+    font-weight: 720;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
   .panel {
     background: var(--panel);
     border: 1px solid var(--line);

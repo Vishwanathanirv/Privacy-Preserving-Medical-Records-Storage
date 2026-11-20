@@ -53,7 +53,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD), sampleScans());
 
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: true, bodyLimit: 256 * 1024 });
-  await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "blob:"], connectSrc: ["'self'"] } } });
+  await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "blob:"], fontSrc: ["'self'", "data:"], workerSrc: ["'self'"], connectSrc: ["'self'"] } } });
   await app.register(cookie);
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 10, fieldSize: 16 * 1024 } });

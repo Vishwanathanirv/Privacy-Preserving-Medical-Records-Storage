@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import type { Gray } from "@medvault/core";
 import xrayUrl from "../../../../samples/chest-xray-pa-2.png?url";
 import { DEMO, useAuth } from "../lib";
 import { Avatar, Mark } from "../ui";
@@ -168,59 +167,38 @@ export function Login() {
  * it. A lens shows which pixels carry the record. Computed here, after the page has painted.
  */
 function Lens() {
-  const view = useRef<HTMLCanvasElement>(null);
-  const [state, setState] = useState<{ base: HTMLCanvasElement; mark: HTMLCanvasElement; changed: number; bytes: number; total: number } | null>(null);
+  const baseCanvas = useRef<HTMLCanvasElement>(null);
+  const lensCanvas = useRef<HTMLCanvasElement>(null);
+  const [state, setState] = useState<{ mark: HTMLCanvasElement; w: number; h: number; changed: number; bytes: number; total: number } | null>(null);
   const pos = useRef({ x: 0.62, y: 0.44, user: false });
 
   useEffect(() => {
-    let live = true;
-    const start = () =>
-      void (async () => {
-        // The crypto and imaging code loads after the page has painted.
-        const [{ decodePng, embed, encryptRecord }, png] = await Promise.all([import("@medvault/core"), fetch(xrayUrl).then((r) => r.arrayBuffer())]);
-        const g = decodePng(new Uint8Array(png)).image;
-        const sealed = encryptRecord(crypto.getRandomValues(new Uint8Array(32)), crypto.randomUUID(), crypto.randomUUID(), { title: "Chest X-ray: persistent cough", diagnosis: "Bilateral patchy opacities; viral pneumonia most likely.", medications: ["Paracetamol 500 mg as needed"] });
-        const { image } = embed(g, sealed.ciphertext);
-        if (!live) return;
-        const toCanvas = (img: Gray, f: (i: number) => [number, number, number]) => {
-          const c = document.createElement("canvas");
-          c.width = img.width;
-          c.height = img.height;
-          const ctx = c.getContext("2d")!;
-          const out = ctx.createImageData(img.width, img.height);
-          for (let i = 0; i < img.data.length; i++) {
-            const [r, gg, b] = f(i);
-            out.data.set([r, gg, b, 255], i * 4);
-          }
-          ctx.putImageData(out, 0, 0);
-          return c;
-        };
-        let changed = 0;
-        const base = toCanvas(image, (i) => [image.data[i], image.data[i], image.data[i]]);
-        const mark = toCanvas(image, (i) => {
-          if (image.data[i] !== g.data[i]) {
-            changed++;
-            return [125, 240, 194];
-          }
-          const v = image.data[i] * 0.22;
-          return [v, v, v];
-        });
-        setState({ base, mark, changed, bytes: sealed.ciphertext.length, total: g.width * g.height });
-      })();
-    const idle = (window as Window & { requestIdleCallback?: (f: () => void) => number }).requestIdleCallback;
-    if (idle) idle(start);
-    else setTimeout(start, 200);
-    return () => {
-      live = false;
+    // The sealing runs in a worker; the page stays responsive while it does.
+    const worker = new Worker(new URL("../lens.worker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (e: MessageEvent<{ width: number; height: number; base: Uint8ClampedArray<ArrayBuffer>; mark: Uint8ClampedArray<ArrayBuffer>; changed: number; bytes: number; total: number }>) => {
+      const { width: w, height: h, base, mark, changed, bytes, total } = e.data;
+      const b = baseCanvas.current;
+      if (!b) return;
+      b.width = w;
+      b.height = h;
+      b.getContext("2d")!.putImageData(new ImageData(base, w, h), 0, 0);
+      const m = document.createElement("canvas");
+      m.width = w;
+      m.height = h;
+      m.getContext("2d")!.putImageData(new ImageData(mark, w, h), 0, 0);
+      setState({ mark: m, w, h, changed, bytes, total });
+      worker.terminate();
     };
+    worker.postMessage(new URL(xrayUrl, location.href).href);
+    return () => worker.terminate();
   }, []);
 
   useEffect(() => {
-    if (!state || !view.current) return;
-    const c = view.current;
+    const c = lensCanvas.current;
+    if (!state || !c) return;
     const ctx = c.getContext("2d")!;
-    c.width = state.base.width;
-    c.height = state.base.height;
+    c.width = state.w;
+    c.height = state.h;
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
     const draw = (t: number) => {
@@ -233,7 +211,8 @@ function Lens() {
       const y = pos.current.y * c.height;
       const r = W * 0.17;
       const zoom = 2.4;
-      ctx.drawImage(state.base, 0, 0);
+      // Only the lens is redrawn each frame; the X-ray underneath is a separate, static canvas.
+      ctx.clearRect(0, 0, W, c.height);
       ctx.save();
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -246,7 +225,7 @@ function Lens() {
       ctx.lineWidth = W / 220;
       ctx.strokeStyle = "rgba(125,240,194,0.9)";
       ctx.stroke();
-      if (!reduce || !pos.current.user) raf = requestAnimationFrame(draw);
+      raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -261,7 +240,8 @@ function Lens() {
     <figure className="film rise overflow-hidden border border-white/[0.06]">
       <div className="relative aspect-square w-full">
         {!state && <img src={xrayUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-90" fetchPriority="low" decoding="async" />}
-        <canvas ref={view} onPointerMove={move} onPointerLeave={() => (pos.current.user = false)} className="absolute inset-0 h-full w-full cursor-crosshair touch-none" role="img" aria-label="A real chest X-ray with an encrypted record hidden in it. A lens shows the pixels that carry the record." />
+        <canvas ref={baseCanvas} className="absolute inset-0 h-full w-full" aria-hidden />
+        <canvas ref={lensCanvas} onPointerMove={move} onPointerLeave={() => (pos.current.user = false)} className="absolute inset-0 h-full w-full cursor-crosshair touch-none" role="img" aria-label="A real chest X-ray with an encrypted record hidden in it. A lens shows the pixels moved to hide the record." />
         <div className="overlay left-4 top-3">
           MEDVAULT · CHEST PA
           <br />
@@ -273,7 +253,7 @@ function Lens() {
           AES-256-GCM
         </div>
       </div>
-      <figcaption className="border-t border-white/[0.06] px-4 py-3 text-[13px] leading-relaxed text-white/70">{state ? <>Move the lens. An encrypted record ({state.bytes} bytes) is hidden in this X-ray. The lens shows the pixels moved to make room for it: {state.changed.toLocaleString()} of {state.total.toLocaleString()}, each by one grey level, invisible to the eye. Take the record out and every pixel comes back exactly.</> : "Sealing a record into this X-ray, in your browser…"}</figcaption>
+      <figcaption className="border-t border-white/[0.06] px-4 py-3 text-[13px] leading-relaxed text-white/75">{state ? <>Move the lens. An encrypted record ({state.bytes} bytes) is hidden in this X-ray. The lens shows the pixels moved to make room for it: {state.changed.toLocaleString()} of {state.total.toLocaleString()}, each by one grey level, invisible to the eye. Take the record out and every pixel comes back exactly.</> : "Sealing a record into this X-ray, in your browser…"}</figcaption>
     </figure>
   );
 }
