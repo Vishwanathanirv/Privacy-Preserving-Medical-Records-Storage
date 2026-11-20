@@ -99,6 +99,8 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   app.post("/api/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, handle);
   app.post("/api/patients/:id/records", { ...upload, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, handle);
   app.post("/api/verify", { ...upload, config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, handle);
+  // Break-glass openings need no account, so they get the login's limit.
+  app.post("/api/sos/:id/open", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, handle);
   app.route({ method: ["GET", "POST", "PUT", "DELETE"], url: "/api/*", handler: handle });
 
   const webDist = [resolve(process.cwd(), "apps/web/dist"), resolve(here, "../../web/dist")].find((p) => existsSync(join(p, "index.html")));

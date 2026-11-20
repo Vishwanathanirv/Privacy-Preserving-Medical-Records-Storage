@@ -20,7 +20,7 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 // Layout: version (1) | IV (12) | GCM tag (16) | ciphertext. Runs the same in Node and the browser.
-function seal(key: Uint8Array, plain: Uint8Array, aad: string): Uint8Array {
+export function seal(key: Uint8Array, plain: Uint8Array, aad: string): Uint8Array {
   const iv = randomBytes(12);
   const out = gcm(key, iv, enc.encode(aad)).encrypt(plain);
   const body = out.subarray(0, out.length - 16);
@@ -32,7 +32,7 @@ function seal(key: Uint8Array, plain: Uint8Array, aad: string): Uint8Array {
   return sealed;
 }
 
-function open(key: Uint8Array, sealed: Uint8Array, aad: string): Uint8Array {
+export function open(key: Uint8Array, sealed: Uint8Array, aad: string): Uint8Array {
   if (sealed.length < 29 || sealed[0] !== VERSION) throw new CryptoError("Unsupported or corrupted ciphertext");
   const iv = sealed.subarray(1, 13);
   const joined = new Uint8Array(sealed.length - 13);

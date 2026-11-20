@@ -43,6 +43,7 @@ export interface RecordStore {
 export interface SeedStore {
   createUser(u: Omit<User, "createdAt">, passwordHash: string): User;
   insertLoan(l: Loan): void;
+  insertCard(c: EmergencyCardRow): void;
   grant(patientId: string, doctorId: string): void;
   audit(actor: string, action: string, target: string, detail?: string): AuditEntry;
 }
@@ -59,3 +60,6 @@ export type Loan = {
   endedAt: number | null;
   endReason: "expired" | "revoked" | null;
 };
+
+/** A patient's emergency card. The server holds only the sealed summary and a hash of the card's access key. */
+export type EmergencyCardRow = { id: string; patientId: string; createdAt: number; salt: string; authHash: string; sealed: string; revokedAt: number | null };

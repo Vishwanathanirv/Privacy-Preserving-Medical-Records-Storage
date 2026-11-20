@@ -103,3 +103,27 @@ test("the browser proves a restored scan is bit-exact against the fingerprint in
   await sheet.getByRole("button", { name: "Flip one pixel and look again" }).click();
   await expect(sheet.getByText(/of 64 digits changed/)).toBeVisible();
 });
+
+test("a paramedic breaks the glass on an emergency card, and the patient sees it at once", async ({ page }) => {
+  await signInAs(page, "Anitha Kumar");
+  await page.getByRole("button", { name: "Break the glass as a paramedic" }).click();
+  await expect(page.getByRole("heading", { name: "Emergency card" })).toBeVisible();
+  await page.getByRole("button", { name: "Break the glass" }).click();
+  await expect(page.getByRole("heading", { name: "Anitha Kumar" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("B+")).toBeVisible();
+  await expect(page.getByText(/Penicillin/)).toBeVisible();
+  await expect(page.getByText(/Logged as entry #\d+ in the signed log/)).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("alert").filter({ hasText: "Your emergency card was opened" })).toBeVisible();
+  await expect(page.getByText(/broke the glass/i).first()).toBeVisible();
+});
+
+test("a patient issues a new emergency card and its one-time code opens it", async ({ page }) => {
+  await signInAs(page, "Anitha Kumar");
+  await page.getByRole("button", { name: "Replace" }).click();
+  await page.getByRole("button", { name: /Issue a new card/ }).click();
+  await expect(page.getByText("This code is shown once.")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Try it as a paramedic" }).click();
+  await page.getByRole("button", { name: "Break the glass" }).click();
+  await expect(page.getByText(/Logged as entry #\d+/)).toBeVisible({ timeout: 30_000 });
+});

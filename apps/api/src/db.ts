@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { GENESIS, auditHash, type AuditEntry } from "@medvault/core";
 
 export type { RecordMeta, Role, User } from "./types";
-import type { Loan, RecordMeta, Role, User } from "./types";
+import type { EmergencyCardRow, Loan, RecordMeta, Role, User } from "./types";
 
 type Row = Record<string, unknown>;
 
@@ -47,6 +47,12 @@ export class Db {
       );
       CREATE INDEX IF NOT EXISTS loans_doctor ON loans (doctor_id, ended_at);
       CREATE INDEX IF NOT EXISTS loans_patient ON loans (patient_id, created_at);
+      CREATE TABLE IF NOT EXISTS sos_cards (
+        id TEXT PRIMARY KEY,
+        patient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL, salt TEXT NOT NULL, auth_hash TEXT NOT NULL,
+        sealed TEXT NOT NULL, revoked_at INTEGER
+      );
       CREATE TABLE IF NOT EXISTS audit (
         seq INTEGER PRIMARY KEY, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL,
         target TEXT NOT NULL, detail TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL
@@ -161,6 +167,23 @@ export class Db {
   /** Ends a loan. Its wrapped key is removed (and zeroed on disk, see secure_delete), so the loan can never open the record again. */
   endLoan(id: string, reason: "expired" | "revoked", at: number) {
     this.db.prepare("UPDATE loans SET wrapped_key = NULL, ended_at = ?, end_reason = ? WHERE id = ? AND ended_at IS NULL").run(at, reason, id);
+  }
+
+  // ---------- emergency cards ----------
+  private card = (r: Row): EmergencyCardRow => ({ id: r.id as string, patientId: r.patient_id as string, createdAt: r.created_at as number, salt: r.salt as string, authHash: r.auth_hash as string, sealed: r.sealed as string, revokedAt: (r.revoked_at as number | null) ?? null });
+  insertCard(c: EmergencyCardRow) {
+    this.db.prepare("INSERT INTO sos_cards (id, patient_id, created_at, salt, auth_hash, sealed, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(c.id, c.patientId, c.createdAt, c.salt, c.authHash, c.sealed, c.revokedAt);
+  }
+  getCard(id: string) {
+    const r = this.db.prepare("SELECT * FROM sos_cards WHERE id = ?").get(id) as Row | undefined;
+    return r ? this.card(r) : null;
+  }
+  activeCard(patientId: string) {
+    const r = this.db.prepare("SELECT * FROM sos_cards WHERE patient_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1").get(patientId) as Row | undefined;
+    return r ? this.card(r) : null;
+  }
+  revokeCard(id: string, at: number) {
+    this.db.prepare("UPDATE sos_cards SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(at, id);
   }
 
   // ---------- audit chain ----------

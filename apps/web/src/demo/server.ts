@@ -1,7 +1,7 @@
 import { scryptAsync } from "@noble/hashes/scrypt.js";
 import { bytesToHex, randomBytes } from "@noble/hashes/utils.js";
 import { GENESIS, auditHash, fromBase64, toBase64, type AuditEntry } from "@medvault/core";
-import type { Loan, RecordMeta, Role, User } from "../../../api/src/types";
+import type { EmergencyCardRow, Loan, RecordMeta, Role, User } from "../../../api/src/types";
 import { DEMO_PASSWORD, seedDemo } from "../../../api/src/seed";
 import { Service, type Result, type Session, type Store } from "../../../api/src/service";
 import { TransparencyLog } from "../../../api/src/translog";
@@ -19,9 +19,9 @@ import { Vault } from "../../../api/src/vault";
 type StoredRecord = Omit<RecordMeta, "authorName"> & { stegoPng: Uint8Array; wrappedKey: Uint8Array };
 type StoredUser = User & { passwordHash: string };
 type Grant = { patientId: string; doctorId: string; grantedAt: number };
-type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; loans: Loan[]; audit: AuditEntry[]; session: string | null };
+type State = { kek: string; logKey: string; users: StoredUser[]; records: StoredRecord[]; grants: Grant[]; loans: Loan[]; cards: EmergencyCardRow[]; sosLink: string | null; audit: AuditEntry[]; session: string | null };
 
-const STORAGE_KEY = "medvault-demo-v4";
+const STORAGE_KEY = "medvault-demo-v5";
 const SCRYPT = { N: 32768, r: 8, p: 1 };
 const DUMMY_HASH = `scrypt$${SCRYPT.N}$${"00".repeat(16)}$${"00".repeat(32)}`;
 
@@ -139,6 +139,21 @@ class MemoryDb implements Store {
     Object.assign(l, { wrappedKey: null, endedAt: at, endReason: reason });
     this.save();
   }
+  insertCard(c: EmergencyCardRow) {
+    this.s.cards.push(c);
+    this.save();
+  }
+  getCard(id: string) {
+    return this.s.cards.find((c) => c.id === id) ?? null;
+  }
+  activeCard(patientId: string) {
+    return this.s.cards.filter((c) => c.patientId === patientId && !c.revokedAt).sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
+  }
+  revokeCard(id: string, at: number) {
+    const c = this.getCard(id);
+    if (c && !c.revokedAt) c.revokedAt = at;
+    this.save();
+  }
   audit(actor: string, action: string, target: string, detail = ""): AuditEntry {
     const last = this.s.audit.at(-1);
     const base = { seq: (last?.seq ?? 0) + 1, ts: Date.now(), actor, action, target, detail, prevHash: last?.hash ?? GENESIS };
@@ -172,14 +187,14 @@ class DemoServer {
 
   private async boot() {
     const saved = this.load();
-    const state: State = saved ?? { kek: toBase64(randomBytes(32)), logKey: toBase64(randomBytes(32)), users: [], records: [], grants: [], loans: [], audit: [], session: null };
+    const state: State = saved ?? { kek: toBase64(randomBytes(32)), logKey: toBase64(randomBytes(32)), users: [], records: [], grants: [], loans: [], cards: [], sosLink: null, audit: [], session: null };
     this.db = new MemoryDb(state, () => this.scheduleSave());
     const vault = new Vault(this.db, fromBase64(state.kek));
     const tlog = new TransparencyLog(() => this.db.auditAll(), fromBase64(state.logKey));
     this.service = new Service(this.db, vault, tlog, { hash: hashPassword, verify: (pw, stored) => verifyPassword(pw, stored ?? DUMMY_HASH) });
     if (!saved) {
       await new Promise((r) => setTimeout(r, 0));
-      seedDemo(this.db, vault, await hashPassword(DEMO_PASSWORD));
+      state.sosLink = seedDemo(this.db, vault, await hashPassword(DEMO_PASSWORD)).sosLink;
       this.persist();
     }
   }
@@ -224,6 +239,12 @@ class DemoServer {
     } catch {
       // Storage full or unavailable (private window): the sandbox keeps working in memory.
     }
+  }
+
+  /** The seeded emergency card's link, so the demo can offer "break the glass" without a printed card. */
+  async sosLink() {
+    await this.ready;
+    return this.db.s.sosLink;
   }
 
   /** Wipes this browser's sandbox and starts again from the demo data. */

@@ -1,4 +1,4 @@
-import { ctPhantom, writeDicom } from "@medvault/core";
+import { ctPhantom, issueCard, writeDicom } from "@medvault/core";
 import { lend, sealDetail } from "./service";
 import type { SeedStore } from "./types";
 import type { Vault } from "./vault";
@@ -7,7 +7,8 @@ import type { Vault } from "./vault";
 export const DEMO_PASSWORD = "medvault-demo";
 
 /** Fictional people and records only; no real patient data is ever used. */
-export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
+/** Creates the demo people and records. Returns the link to Anitha's emergency card (its code is shown only once). */
+export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string): { sosLink: string } {
   const pw = passwordHash;
   const mk = (name: string, email: string, role: "admin" | "doctor" | "patient") => db.createUser({ id: globalThis.crypto.randomUUID(), name, email, role }, pw);
   const admin = mk("Asha Admin", "admin@medvault.dev", "admin");
@@ -57,5 +58,19 @@ export function seedDemo(db: SeedStore, vault: Vault, passwordHash: string) {
   db.audit(meera.id, "record.create", `record:${r3.id}`, sealDetail(r3));
   // Anitha lends her head CT to Dr. Rao, who is not on her care team, for a second opinion.
   lend(db, vault, { recordId: r1.id, patientId: anitha.id, doctorId: arjun.id, minutes: 120, now: Date.now() });
+  // Anitha's emergency card. A real card is made in the patient's own browser; the code below is
+  // shown only here, for the demo's "break the glass" button.
+  const card = issueCard({
+    name: "Anitha Kumar",
+    bloodType: "B+",
+    allergies: ["Penicillin (rash, swelling)"],
+    conditions: ["Mild concussion, recovering (2026)"],
+    medications: ["Paracetamol 500 mg as needed"],
+    contact: { name: "Ravi Kumar (brother)", phone: "+91 98450 00000" },
+    notes: "No known heart conditions. Wears contact lenses.",
+  });
+  db.insertCard({ id: card.id, patientId: anitha.id, createdAt: Date.now(), salt: card.salt, authHash: card.authHash, sealed: card.sealed, revokedAt: null });
+  db.audit(anitha.id, "sos.issue", `patient:${anitha.id}`, `card:${card.id}`);
   void admin;
+  return { sosLink: `/sos#${card.id}.${card.code}` };
 }

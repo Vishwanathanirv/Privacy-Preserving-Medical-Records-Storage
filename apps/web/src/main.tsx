@@ -13,6 +13,7 @@ import { PatientHome } from "./pages/Patient";
 import { AdminHome } from "./pages/Admin";
 import { How } from "./pages/How";
 import { Palette, openPalette, type Command } from "./palette";
+import { SosPage } from "./pages/Emergency";
 import { Avatar, Mark, Sheet } from "./ui";
 
 const ROLE_NAME = { doctor: "Doctor", patient: "Patient", admin: "Administrator" } as const;
@@ -154,6 +155,9 @@ function useCommands(): Command[] {
       { id: "how", group: "Go to", label: "How it works", hint: "Follow one real record from key to recovery", keys: "h", run: () => go("/how") },
     ];
     if (user?.role === "patient" || user?.role === "doctor") c.push({ id: "proof", group: "Do", label: "Prove a record is bit-exact", hint: "Recover the scan in your browser and match it to the signed log", keys: "p", run: () => go("/proof") });
+    c.push({ id: "sos", group: "Do", label: "Break the glass on an emergency card", hint: "For responders: no account needed", run: () => go("/sos") });
+    if (user?.role === "patient")
+      c.push({ id: "card", group: "Do", label: "My emergency card", hint: "Issue, print, replace or revoke it", keys: "e", run: () => (go("/"), setTimeout(() => document.getElementById("emergency")?.scrollIntoView({ behavior: "smooth" }), 50)) });
     if (user?.role === "patient") c.push({ id: "lend", group: "Do", label: "Lend a record to a doctor", hint: "Time-limited: it comes back by itself", keys: "l", run: () => go("/lend/first") });
     if (user) {
       c.push({ id: "signout", group: "Account", label: "Sign out", run: () => void logout() });
@@ -167,6 +171,8 @@ function Shell() {
   const { user, ready } = useAuth();
   const loc = useLocation();
   const commands = useCommands();
+  // The responder's page needs no account and stands on its own.
+  if (loc.pathname === "/sos") return <SosPage key={loc.hash} />;
   if (!ready) return <div className="min-h-dvh" aria-busy="true" />;
   if (!user)
     return (

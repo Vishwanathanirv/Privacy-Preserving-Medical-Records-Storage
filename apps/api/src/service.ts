@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { verifyChain, type AuditEntry } from "@medvault/core";
-import type { Loan, RecordMeta, Role, User } from "./types";
+import { cardAuthHash, hexToBytesSafe, sameHex, verifyChain, type AuditEntry } from "@medvault/core";
+import type { EmergencyCardRow, Loan, RecordMeta, Role, User } from "./types";
 import { RecordInput } from "./schema";
 import type { TransparencyLog } from "./translog";
 import { type Vault, VaultError } from "./vault";
@@ -37,6 +37,11 @@ export interface Store {
   dueLoans(now: number): Loan[];
   /** Ends a loan and destroys its wrapped key. */
   endLoan(id: string, reason: "expired" | "revoked", at: number): void;
+  insertCard(c: EmergencyCardRow): void;
+  getCard(id: string): EmergencyCardRow | null;
+  /** The patient's current card, if they have one that is not revoked. */
+  activeCard(patientId: string): EmergencyCardRow | null;
+  revokeCard(id: string, at: number): void;
 }
 
 /**
@@ -320,6 +325,43 @@ export class Service {
         db.audit(s.sub, "loan.revoke", `record:${l.recordId}`, `doctor:${l.doctorId}|loan:${l.id}`);
       }
       return ok({ loan: this.loanView(db.getLoan(l.id)!) });
+    }
+
+    // ---------- emergency (break-glass) card ----------
+    if (path === "/api/sos" && (method === "GET" || method === "PUT" || method === "DELETE")) {
+      const s = this.auth(c, "patient");
+      const current = db.activeCard(s.sub);
+      if (method === "PUT") {
+        // The card is made in the patient's browser; only the sealed summary and a hash arrive here.
+        const b = z.object({ id: Id, salt: z.string().regex(/^[0-9a-f]{32}$/), authHash: z.string().regex(/^[0-9a-f]{64}$/), sealed: z.string().min(40).max(16_000) }).parse(c.body);
+        if (db.getCard(b.id)) throw new HttpError(409, "That card already exists");
+        if (current) {
+          db.revokeCard(current.id, this.now());
+          db.audit(s.sub, "sos.revoke", `patient:${s.sub}`, `card:${current.id}`);
+        }
+        db.insertCard({ ...b, patientId: s.sub, createdAt: this.now(), revokedAt: null });
+        db.audit(s.sub, "sos.issue", `patient:${s.sub}`, `card:${b.id}`);
+      } else if (method === "DELETE" && current) {
+        db.revokeCard(current.id, this.now());
+        db.audit(s.sub, "sos.revoke", `patient:${s.sub}`, `card:${current.id}`);
+      }
+      const card = db.activeCard(s.sub);
+      return ok({ card: card ? { id: card.id, createdAt: card.createdAt } : null });
+    }
+    if ((m = path.match(/^\/api\/sos\/([^/]+)\/(salt|open)$/))) {
+      // Public on purpose: a paramedic has the card, not an account. Holding the code is the credential.
+      const card = db.getCard(Id.parse(m[1]));
+      if (!card || card.revokedAt) throw new HttpError(404, "No active emergency card with that id");
+      if (method === "GET" && m[2] === "salt") return ok({ salt: card.salt, kdf: "scrypt", N: 32768, r: 8, p: 1 });
+      if (method === "POST" && m[2] === "open") {
+        const { auth } = z.object({ auth: z.string().regex(/^[0-9a-f]{64}$/) }).parse(c.body);
+        if (!sameHex(cardAuthHash(hexToBytesSafe(auth)), card.authHash)) {
+          db.audit("responder", "sos.failed", `patient:${card.patientId}`, `card:${card.id}`);
+          throw new HttpError(401, "That code does not open this card.");
+        }
+        const e = db.audit("responder", "sos.open", `patient:${card.patientId}`, `card:${card.id}`);
+        return ok({ sealed: card.sealed, issuedAt: card.createdAt, logged: { seq: e.seq, ts: e.ts, hash: e.hash } });
+      }
     }
 
     // ---------- audit ----------

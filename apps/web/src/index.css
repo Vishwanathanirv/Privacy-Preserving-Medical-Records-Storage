@@ -361,3 +361,27 @@ body {
     animation: none;
   }
 }
+
+/* Printing from the emergency card section prints the card alone, at wallet size. */
+@media print {
+  body {
+    background: #fff;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-card,
+  .print-card * {
+    visibility: visible;
+  }
+  .print-card {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 85.6mm;
+    max-width: none;
+    box-shadow: none;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

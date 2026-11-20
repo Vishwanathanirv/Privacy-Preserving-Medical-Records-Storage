@@ -3,6 +3,7 @@ import { fetchHead, verifyEntry, type HeadCheck } from "../translog";
 import { ACTIONS, api, date, refresh, useApi, useAuth, useGo, type AuditEntry, type RecordMeta } from "../lib";
 import { LoanTicket, useNow, type LoanView } from "../loans";
 import { Avatar, Notice, Switch, Wallet } from "../ui";
+import { EmergencyCard } from "./Emergency";
 
 type Doctor = { id: string; name: string; email: string };
 type Grant = Doctor & { grantedAt: number };
@@ -18,6 +19,7 @@ export function PatientHome() {
   const now = useNow(5000);
   const n = data?.records.length ?? 0;
   const out = (loans.data?.loans ?? []).filter((l) => !l.endedAt && l.expiresAt > now);
+  const lastSos = audit.data?.entries.find((e) => e.action === "sos.open");
   const team = grants.data?.grants ?? [];
 
   return (
@@ -27,6 +29,14 @@ export function PatientHome() {
         <h1 id="h-wallet" className="display mt-2 text-[clamp(2.4rem,6vw,3.6rem)]">
           {user?.name.split(" ")[0]}&rsquo;s cards
         </h1>
+        {lastSos && (
+          <a href="#h-trail" role="alert" className="rise mt-5 flex items-center gap-3 rounded-[16px] border border-coral/45 bg-coral-soft px-4 py-3 text-sm text-coral">
+            <span className="pulse-ring h-2.5 w-2.5 flex-none rounded-full bg-coral" aria-hidden />
+            <span>
+              Your emergency card was opened {date(lastSos.ts)}. <span className="underline underline-offset-2">See the trail</span>
+            </span>
+          </a>
+        )}
         <p className="mt-3 text-[0.98rem] leading-relaxed text-muted">
           {data ? (
             <>
@@ -42,6 +52,9 @@ export function PatientHome() {
           ) : (
             <div className="space-y-[-7rem]">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-[11rem] rounded-[18px] border border-line" />)}</div>
           )}
+        </div>
+        <div className="mt-10" id="emergency">
+          <EmergencyCard />
         </div>
       </section>
 

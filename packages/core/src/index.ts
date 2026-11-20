@@ -4,3 +4,4 @@ export * from "./crypto";
 export * from "./dicom";
 export * from "./merkle";
 export * from "./proof";
+export * from "./sos";
