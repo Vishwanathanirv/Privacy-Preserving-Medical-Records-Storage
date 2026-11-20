@@ -63,8 +63,9 @@ export function Login() {
         </span>
       </header>
 
-      <main className="mx-auto grid max-w-[88rem] gap-10 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-14 lg:pt-14">
-        <section aria-labelledby="pitch">
+      {/* On phones: headline, then the X-ray, then the rest. On wide screens: text left, X-ray and sign-in right. */}
+      <main className="mx-auto grid max-w-[88rem] gap-10 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:grid-rows-[auto_auto_1fr] lg:gap-x-14 lg:gap-y-8 lg:pt-14">
+        <section aria-labelledby="pitch" className="lg:col-start-1 lg:row-start-1">
           <p className="eyebrow text-accent">A health wallet you hold and lend</p>
           <h1 id="pitch" className="display mt-4 text-[clamp(2.9rem,7.4vw,5.6rem)]">
             Your scan is
@@ -72,7 +73,12 @@ export function Login() {
             the envelope.
           </h1>
           <p className="mt-6 max-w-xl text-[1.08rem] leading-relaxed text-muted">MedVault encrypts each medical record and hides it inside its own scan, reversibly. The patient holds the keys and lends them out, a card at a time.</p>
-          <dl className="mt-8 grid max-w-2xl gap-x-6 gap-y-4 sm:grid-cols-3">
+        </section>
+        <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <Lens />
+        </div>
+        <section aria-label="The idea and what to try" className="lg:col-start-1 lg:row-span-2 lg:row-start-2">
+          <dl className="grid max-w-2xl gap-x-6 gap-y-4 sm:grid-cols-3">
             {[
               ["The problem", "Records and scans live in different systems. Copies drift apart and leak, and patients never see who looked."],
               ["The idea", "Seal the record into the scan's own pixels. Take it out and the scan comes back bit for bit."],
@@ -104,8 +110,7 @@ export function Login() {
           </ul>
         </section>
 
-        <div className="space-y-8">
-          <Lens />
+        <div className="lg:col-start-2 lg:row-start-3">
           <section className="rounded-[24px] border border-line bg-panel p-5 sm:p-6" aria-labelledby="h-signin">
             <h2 id="h-signin" className="text-[1.3rem] font-bold tracking-tight">
               Sign in
