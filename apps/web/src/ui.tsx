@@ -117,13 +117,16 @@ function WalletCard({ r, to, lent, index }: { r: RecordMeta; to: string; lent?: 
       style={{ animationDelay: `${index * 70}ms` }}
       aria-label={`${r.title}, by ${r.authorName}, ${date(r.createdAt)}${lent ? ", on loan" : ""}`}
     >
-      {src ? <img src={src} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 transition-[opacity,transform] duration-700 group-hover:scale-100 group-hover:opacity-85" loading="lazy" /> : <div className="skeleton absolute inset-0 rounded-none" />}
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.82),rgba(0,0,0,0.15)_45%,rgba(0,0,0,0.85))]" />
+      {src ? <img src={src} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-80 transition-[opacity,transform] duration-700 group-hover:scale-100 group-hover:opacity-100" loading="lazy" /> : <div className="skeleton absolute inset-0 rounded-none" />}
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.8),rgba(0,0,0,0.05)_45%,rgba(0,0,0,0.8))]" />
       <div className="relative flex h-full flex-col justify-between p-4">
         <div className="flex items-start gap-3 pr-16">
           <Chip />
           <div className="min-w-0">
-            <div className="truncate text-[1.05rem] font-semibold leading-tight">{r.title}</div>
+            <div className="flex items-center gap-2">
+              <span className="truncate text-[1.05rem] font-semibold leading-tight">{r.title}</span>
+              {lent && <span className="flex-none rounded-full bg-amber px-2 py-0.5 text-[10.5px] font-semibold text-amber-ink">On loan</span>}
+            </div>
             <div className="mt-0.5 text-xs text-white/65">
               {r.authorName} · {new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
             </div>
@@ -135,7 +138,7 @@ function WalletCard({ r, to, lent, index }: { r: RecordMeta; to: string; lent?: 
             <br />
             {(r.stats.payloadBytes / 1024).toFixed(1)} KB sealed in {r.width}×{r.height}
           </span>
-          {lent ? <span className="rounded-full bg-amber px-2 py-0.5 font-sans text-[11px] font-semibold normal-case tracking-normal text-amber-ink">On loan</span> : <span className="text-accent">● sealed</span>}
+          <span className="text-accent">● sealed</span>
         </div>
       </div>
     </Link>

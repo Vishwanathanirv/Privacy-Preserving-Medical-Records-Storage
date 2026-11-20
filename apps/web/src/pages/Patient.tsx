@@ -191,7 +191,7 @@ function Trail({ entries }: { entries?: AuditEntry[] }) {
       <ol className="mt-4 max-h-[40rem] overflow-y-auto rounded-[20px] border border-line bg-panel p-2" aria-label="Access trail entries">
         {(entries ?? []).map((e) => {
           const d = doctorIn(e.detail);
-          const sos = e.action.startsWith("sos.");
+          const sos = e.action === "sos.open" || e.action === "sos.failed";
           return (
             <li key={e.seq} className={`flex gap-3 rounded-[14px] px-3 py-2.5 text-sm ${sos ? "bg-coral-soft" : ""}`}>
               <span className={`mt-1.5 h-2 w-2 flex-none rounded-full ${sos ? "bg-coral" : e.action.startsWith("loan.") ? "bg-amber" : e.action === "record.denied" || e.action === "auth.failed" ? "bg-coral" : "bg-accent"}`} aria-hidden />
