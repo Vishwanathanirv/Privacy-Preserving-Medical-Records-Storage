@@ -74,7 +74,7 @@ test("a patient lends a record for 15 minutes, the doctor opens it, and taking i
 
   await signInAs(page, "Dr. Arjun Rao");
   const lent = page.getByRole("list", { name: "Records lent to you" });
-  await lent.getByRole("link", { name: /Head CT/ }).first().click();
+  await lent.getByRole("link", { name: /Brain MRI/ }).first().click();
   const record = page.getByRole("dialog", { name: "Record" });
   await expect(record.getByText(/Lent to you\. Access ends in/)).toBeVisible({ timeout: 30_000 });
   await expect(record.getByText("Restored scan is bit-for-bit identical to the original")).toBeVisible();

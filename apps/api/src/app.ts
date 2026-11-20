@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
@@ -9,7 +9,7 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { Db } from "./db";
 import { COOKIE, hashPassword, loadKey, readSession, signSession, verifyPassword } from "./security";
-import { DEMO_PASSWORD, seedDemo } from "./seed";
+import { DEMO_PASSWORD, SAMPLE_FILES, seedDemo, type SeedScans } from "./seed";
 import { Service, type Session } from "./service";
 import { TransparencyLog } from "./translog";
 import { Vault } from "./vault";
@@ -33,6 +33,14 @@ class HttpError extends Error {
   }
 }
 
+/** The licensed sample scans in samples/, for the demo records (they are optional). */
+function sampleScans(): SeedScans {
+  const dir = [resolve(process.cwd(), "samples"), resolve(here, "../../../samples")].find((p) => existsSync(p));
+  const out: SeedScans = {};
+  if (dir) for (const [k, f] of Object.entries(SAMPLE_FILES)) if (existsSync(join(dir, f))) out[k as keyof SeedScans] = new Uint8Array(readFileSync(join(dir, f)));
+  return out;
+}
+
 export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyInstance; db: Db }> {
   const db = new Db(opts.dbFile);
   const keyDir = opts.keyDir ?? process.env.KEY_DIR ?? "./data";
@@ -42,7 +50,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   const vault = new Vault(db, kek);
   const logKey = loadKey("LOG_SIGNING_KEY", memory ? ":memory:" : join(keyDir, "log.key"));
   const tlog = new TransparencyLog(() => db.auditAll(), logKey);
-  if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD));
+  if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD), sampleScans());
 
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: true, bodyLimit: 256 * 1024 });
   await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "blob:"], connectSrc: ["'self'"] } } });

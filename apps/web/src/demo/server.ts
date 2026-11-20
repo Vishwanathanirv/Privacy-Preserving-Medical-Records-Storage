@@ -6,6 +6,20 @@ import { DEMO_PASSWORD, seedDemo } from "../../../api/src/seed";
 import { Service, type Result, type Session, type Store } from "../../../api/src/service";
 import { TransparencyLog } from "../../../api/src/translog";
 import { Vault } from "../../../api/src/vault";
+import mriUrl from "../../../../samples/brain-mri-t1.png?url";
+import xray1Url from "../../../../samples/chest-xray-pa-1.png?url";
+import xray2Url from "../../../../samples/chest-xray-pa-2.png?url";
+
+/** The real, openly licensed scans used for the demo records (see samples/README.md). */
+async function sampleScans() {
+  const get = async (u: string) => new Uint8Array(await (await fetch(u)).arrayBuffer());
+  try {
+    const [mri, xray1, xray2] = await Promise.all([get(mriUrl), get(xray1Url), get(xray2Url)]);
+    return { mri, xray1, xray2 };
+  } catch {
+    return {}; // offline: synthetic phantoms instead
+  }
+}
 
 /**
  * In-browser version of the MedVault server, used for the hosted demo. Every API call goes
@@ -194,7 +208,8 @@ class DemoServer {
     this.service = new Service(this.db, vault, tlog, { hash: hashPassword, verify: (pw, stored) => verifyPassword(pw, stored ?? DUMMY_HASH) });
     if (!saved) {
       await new Promise((r) => setTimeout(r, 0));
-      state.sosLink = seedDemo(this.db, vault, await hashPassword(DEMO_PASSWORD)).sosLink;
+      const [hash, scans] = await Promise.all([hashPassword(DEMO_PASSWORD), sampleScans()]);
+      state.sosLink = seedDemo(this.db, vault, hash, scans).sosLink;
       this.persist();
     }
   }
