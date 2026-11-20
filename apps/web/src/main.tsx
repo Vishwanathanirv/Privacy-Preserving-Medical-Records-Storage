@@ -15,32 +15,11 @@ import { Avatar, Sheet } from "./ui";
 
 const ROLE_NAME = { doctor: "Doctor", patient: "Patient", admin: "Administrator" } as const;
 
-function useTheme(): [string, (t: string) => void] {
-  const [t, setT] = useState(() => {
-    try {
-      return localStorage.getItem("medvault-theme") ?? "system";
-    } catch {
-      return "system";
-    }
-  });
-  useEffect(() => {
-    if (t === "system") delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = t;
-    try {
-      localStorage.setItem("medvault-theme", t);
-    } catch {
-      /* private mode */
-    }
-  }, [t]);
-  return [t, setT];
-}
-
 /** Everything that isn't the home screen lives behind your avatar. */
 function AccountMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useTheme();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -77,13 +56,6 @@ function AccountMenu() {
           >
             How MedVault works
           </button>
-          <div className="flex gap-1 px-3 py-2" role="group" aria-label="Appearance">
-            {["system", "light", "dark"].map((t) => (
-              <button key={t} className={`flex-1 rounded-full px-2 py-1 text-xs font-semibold capitalize ${theme === t ? "bg-ink text-bg" : "bg-panel-2 text-muted"}`} onClick={() => setTheme(t)} aria-pressed={theme === t}>
-                {t === "system" ? "Auto" : t}
-              </button>
-            ))}
-          </div>
           {DEMO && (
             <button role="menuitem" className={item} onClick={() => void import("./demo/server").then(({ demo }) => demo.reset())}>
               Reset demo data
