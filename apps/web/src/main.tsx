@@ -14,7 +14,6 @@ const DoctorHome = lazy(() => import("./pages/Doctor").then((m) => ({ default: m
 const RecordView = lazy(() => import("./pages/Record").then((m) => ({ default: m.RecordView })));
 const PatientHome = lazy(() => import("./pages/Patient").then((m) => ({ default: m.PatientHome })));
 const AdminHome = lazy(() => import("./pages/Admin").then((m) => ({ default: m.AdminHome })));
-const How = lazy(() => import("./pages/How").then((m) => ({ default: m.How })));
 const SosPage = lazy(() => import("./pages/Emergency").then((m) => ({ default: m.SosPage })));
 const LendForm = lazy(() => import("./loans").then((m) => ({ default: m.LendForm })));
 
@@ -31,7 +30,6 @@ const ROLE_NAME = { doctor: "Doctor", patient: "Patient", admin: "Administrator"
 /** Everything that isn't the home screen lives behind your avatar or the command palette. */
 function AccountMenu() {
   const { user, logout } = useAuth();
-  const go = useGo();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -59,9 +57,6 @@ function AccountMenu() {
       {open && (
         <div className="rise absolute right-0 top-full z-30 mt-2 w-64 rounded-[18px] border border-line-2 bg-panel p-1.5 shadow-[var(--shadow)]" role="menu">
           <div className="px-3 pb-2 pt-1.5 text-xs text-faint">{user.email}</div>
-          <button role="menuitem" className={item} onClick={() => (setOpen(false), go("/how"))}>
-            How it works <span className="kbd">h</span>
-          </button>
           <button role="menuitem" className={item} onClick={() => (setOpen(false), openPalette())}>
             All commands <span className="kbd">⌘K</span>
           </button>
@@ -151,24 +146,12 @@ function ProofJump() {
   return null;
 }
 
-function HowSheet() {
-  const go = useGo();
-  return (
-    <Sheet label="How MedVault works" onClose={() => go("/")}>
-      <Suspense fallback={<Loading />}>
-        <How />
-      </Suspense>
-    </Sheet>
-  );
-}
-
 function useCommands(): Command[] {
   const { user, logout } = useAuth();
   const go = useGo();
   return useMemo(() => {
     const c: Command[] = [
       { id: "home", group: "Go to", label: user ? "My wallet" : "Start", hint: "The home screen", keys: "g", run: () => go("/") },
-      { id: "how", group: "Go to", label: "How it works", hint: "Follow one real record from key to recovery", keys: "h", run: () => go("/how") },
     ];
     if (user?.role === "patient" || user?.role === "doctor") c.push({ id: "proof", group: "Do", label: "Prove a record is bit-exact", hint: "Recover the scan in your browser and match it to the signed log", keys: "p", run: () => go("/proof") });
     c.push({ id: "sos", group: "Do", label: "Break the glass on an emergency card", hint: "For responders: no account needed", run: () => go("/sos") });
@@ -198,15 +181,11 @@ function Shell() {
   if (!user)
     return (
       <>
-        <Routes>
-          <Route path="/how" element={<HowSheet />} />
-          <Route path="*" element={null} />
-        </Routes>
         <Login />
         <Palette commands={commands} />
       </>
     );
-  const how = loc.pathname === "/how" || loc.pathname === "/proof";
+  const how = loc.pathname === "/proof";
 
   let home: ReactNode;
   if (user.role === "doctor")
@@ -246,7 +225,6 @@ function Shell() {
         {user.role === "patient" && <Route path="/lend/:rid" element={<LendSheet />} />}
         {user.role === "doctor" && <Route path="/patients/:id/records/:rid" element={<RecordSheet />} />}
         {user.role === "doctor" && <Route path="/lent/:rid" element={<RecordSheet />} />}
-        <Route path="/how" element={<HowSheet />} />
         <Route path="/proof" element={<ProofJump />} />
         <Route path="/" element={null} />
         {user.role === "doctor" && <Route path="/patients/:id" element={null} />}

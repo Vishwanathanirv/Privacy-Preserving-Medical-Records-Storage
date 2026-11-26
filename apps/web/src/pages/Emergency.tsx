@@ -111,7 +111,7 @@ export function EmergencyCard() {
               Print card
             </button>
             <button className="btn" onClick={() => go(`/sos#${fresh.id}.${fresh.code}`)}>
-              Try it as a paramedic
+              Open as a paramedic
             </button>
           </div>
         </div>
