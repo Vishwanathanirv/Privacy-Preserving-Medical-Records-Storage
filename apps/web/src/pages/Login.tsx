@@ -16,7 +16,6 @@ const TRY = [
   { k: "lend", t: "Lend a record", d: "Give a doctor one card for 15 minutes. Watch it come back by itself.", who: "anitha@medvault.dev", to: "/lend/first", tone: "amber" },
   { k: "proof", t: "Prove it's bit-exact", d: "Your browser restores a real X-ray and matches it to the signed log.", who: "anitha@medvault.dev", to: "/proof", tone: "accent" },
   { k: "sos", t: "Break the glass", d: "Be the paramedic: open Anitha's emergency card with no account.", who: null, to: "sos", tone: "coral" },
-  { k: "how", t: "How it works", d: "One record, from key to recovery, computed live.", who: null, to: "/how", tone: "accent" },
 ] as const;
 
 const TONE = { amber: "hover:border-amber/50 [--t:var(--amber)]", accent: "hover:border-accent/50 [--t:var(--accent)]", coral: "hover:border-coral/50 [--t:var(--coral)]" };
@@ -47,8 +46,7 @@ export function Login() {
     if (t.k === "sos") {
       const link = DEMO ? await import("../demo/server").then(({ demo }) => demo.sosLink()) : null;
       nav(link ?? "/sos");
-    } else if (t.who) await go(t.who, PASSWORD, t.to);
-    else nav(t.to, { viewTransition: true });
+    } else await go(t.who, PASSWORD, t.to);
   }
 
   return (
@@ -75,21 +73,8 @@ export function Login() {
         <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <Lens />
         </div>
-        <section aria-label="The idea and what to try" className="lg:col-start-1 lg:row-span-2 lg:row-start-2">
-          <dl className="grid max-w-2xl gap-x-6 gap-y-4 sm:grid-cols-3">
-            {[
-              ["The problem", "Records and scans live in different systems. Copies drift apart and leak, and patients never see who looked."],
-              ["The idea", "Seal the record into the scan's own pixels. Take it out and the scan comes back bit for bit."],
-              ["Why it's different", "Portals and PACS keep the keys. Here the patient lends access that expires, and anyone can verify the log."],
-            ].map(([k, v]) => (
-              <div key={k} className="border-t border-line-2 pt-3">
-                <dt className="font-mono text-[11px] uppercase tracking-[0.12em] text-faint">{k}</dt>
-                <dd className="mt-1.5 text-[0.92rem] leading-relaxed">{v}</dd>
-              </div>
-            ))}
-          </dl>
-
-          <h2 className="eyebrow mt-12">Try it</h2>
+        <section aria-label="Start with" className="lg:col-start-1 lg:row-span-2 lg:row-start-2">
+          <h2 className="eyebrow">Start with</h2>
           <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
             {TRY.map((t) => (
               <li key={t.k}>
@@ -111,9 +96,9 @@ export function Login() {
         <div className="lg:col-start-2 lg:row-start-3">
           <section className="rounded-[24px] border border-line bg-panel p-5 sm:p-6" aria-labelledby="h-signin">
             <h2 id="h-signin" className="text-[1.3rem] font-bold tracking-tight">
-              Sign in
+              Open a wallet as
             </h2>
-            <p className="mt-1 text-sm text-muted">Pick someone to be. Everyone here is fictional; the scans are real, openly licensed images.</p>
+            <p className="mt-1 text-sm text-muted">One click, no password. Everyone here is fictional; the scans are real.</p>
             <ul className="mt-4 grid gap-2 sm:grid-cols-2">
               {PEOPLE.map((d) => (
                 <li key={d.email}>
@@ -253,7 +238,12 @@ function Lens() {
           AES-256-GCM
         </div>
       </div>
-      <figcaption className="border-t border-white/[0.06] px-4 py-3 text-[13px] leading-relaxed text-white/75">{state ? <>Move the lens. An encrypted record ({state.bytes} bytes) is hidden in this X-ray. The lens shows the pixels moved to make room for it: {state.changed.toLocaleString()} of {state.total.toLocaleString()}, each by one grey level, invisible to the eye. Take the record out and every pixel comes back exactly.</> : "Sealing a record into this X-ray, in your browser…"}</figcaption>
+      <figcaption className="border-t border-white/[0.06] px-4 py-3 text-[13px] leading-relaxed text-white/75">
+        {state ? <>Move the lens. An encrypted record ({state.bytes} bytes) is hidden in this X-ray. The lens shows the pixels moved to make room for it: {state.changed.toLocaleString()} of {state.total.toLocaleString()}, each by one grey level, invisible to the eye. Take the record out and every pixel comes back exactly.</> : "Sealing a record into this X-ray, in your browser…"}
+        <span className="mt-2 block text-[11.5px] text-white/50">
+          Scan: Hannover Medical School, COVID-19 image repository (Winther et al., figshare, doi:10.6084/m9.figshare.12275009), <a className="underline underline-offset-2 hover:text-white" href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>. Converted to grayscale and downscaled.
+        </span>
+      </figcaption>
     </figure>
   );
 }

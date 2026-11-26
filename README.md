@@ -7,18 +7,17 @@
 ## The idea
 
 - **The problem.** Medical records and medical images live in different systems. Copies drift apart and leak, the context of a scan gets lost when it is emailed or archived, and patients never see who looked.
-- **The idea.** Encrypt each record and hide it inside its own scan, *reversibly*. The scan carries its record wherever it goes, only the right key can read it, and taking the record out gives back the original scan to the last bit. The patient holds the keys, like cards in a wallet, and lends them out one at a time.
+- **The idea.** Encrypt each record and hide it inside its own scan, reversibly. The scan carries its record wherever it goes, only the right key can read it, and taking the record out gives back the original scan to the last bit. The patient holds the keys, like cards in a wallet, and lends them out one at a time.
 - **Why it's different.** Patient portals and PACS keep the keys and the logs to themselves. In MedVault, access is a loan that expires by itself, emergency access needs nothing but a card in your pocket, and every claim (who looked, that a scan is unaltered) is checked in your own browser against a signed log, not taken on the server's word.
 
-## Signature features, and where to try them
+## Features
 
-| Feature | What it does | Try it in the live demo |
+| Feature | What it does | Where in the live demo |
 | --- | --- | --- |
-| **Lend a record** (time-limited consent) | A patient lends *one* record to any doctor for 15 minutes to a week. The loan gets its own key (HKDF over the master key, bound to record, patient, doctor and expiry), and the record key is re-wrapped under it. When time runs out, or the patient takes it back, that wrapped key is destroyed. Moving the expiry in the database does not extend the loan: the derived key no longer opens anything. | First screen → **Lend a record**, or as Anitha: **Lend a card** / the **Lend** button on any card / press `l`. As Dr. Arjun Rao: **Lent to you**, with a live countdown. |
-| **Tamper-evident access trail** | Every access, loan, refusal and break-glass opening is a block in a SHA-256 hash chain *and* a leaf of an RFC 9162 Merkle tree whose head is signed with Ed25519. Patients prove their entries are in the signed log, in the browser; admins verify the chain and that the log only grew. Each loan has its own trail. | As Anitha: **Access trail → Verify in my browser**, or open a loan ticket → **Prove it in my browser**. As Asha Admin: **The ledger → Verify chain**. |
+| **Lend a record** (time-limited consent) | A patient lends one record to any doctor for 15 minutes to a week. The loan gets its own key (HKDF over the master key, bound to record, patient, doctor and expiry), and the record key is re-wrapped under it. When time runs out, or the patient takes it back, that wrapped key is destroyed. Moving the expiry in the database does not extend the loan: the derived key no longer opens anything. | First screen → **Lend a record**, or as Anitha: **Lend a card** / the **Lend** button on any card / press `l`. As Dr. Arjun Rao: **Lent to you**, with a live countdown. |
+| **Tamper-evident access trail** | Every access, loan, refusal and break-glass opening is a block in a SHA-256 hash chain and a leaf of an RFC 9162 Merkle tree whose head is signed with Ed25519. Patients prove their entries are in the signed log, in the browser; admins verify the chain and that the log only grew. Each loan has its own trail. | As Anitha: **Access trail → Verify in my browser**, or open a loan ticket → **Prove it in my browser**. As Asha Admin: **The ledger → Verify chain**. |
 | **Prove it's bit-exact** | Your browser downloads the stored file, extracts the hidden (still encrypted) record, restores the scan, fingerprints it, and checks the fingerprint against the one sealed into the signed log when the record was made. Flip one pixel and watch the hash mosaic break. | First screen → **Prove it's bit-exact**; any record → **Prove it's bit-exact**; or press `p`. |
 | **Emergency break-glass card** | A wallet-sized card with a QR code. The patient's browser makes a 100-bit code and stretches it with scrypt into two keys: one seals the summary (blood type, allergies, conditions, medications, contact), the other proves possession. The server stores only ciphertext and a hash, so it can log every opening but never read the card. A responder needs no account. The patient is alerted at once. | First screen → **Break the glass**; as Anitha: **Emergency card → Break the glass as a paramedic**, or **Replace** to issue, print and try a new one. |
-| **How it works** | An interactive walkthrough that follows one real X-ray and record through keys → encryption → reversible hiding → lending → recovery, all computed live. | First screen → **How it works**, or press `h` anywhere. |
 
 Also: patients switch doctors on their **care team** on and off (standing consent); DICOM files are **de-identified** (identifying header values travel only inside the encrypted record, and the original file is rebuilt byte for byte); a one-click **tamper test**; **file verification** for any PNG or DICOM; a **command palette** (`⌘K` / `Ctrl K` or `/`).
 
@@ -27,10 +26,10 @@ Also: patients switch doctors on their **care team** on and off (standing consen
 | ![Anitha's wallet: cards whose art is the scan each record is sealed in, a loan with a countdown ring, the care team, the access trail](docs/screenshots/wallet.jpg) | ![The lend sheet: choose a doctor and a duration; the key is destroyed when time is up](docs/screenshots/lend.jpg) |
 | **Bit-exact proof** | **Break-glass** |
 | ![The bit-exact proof: stored, restored and changed-pixel views, and two identical hash mosaics](docs/screenshots/proof.jpg) | ![The responder's view of an emergency card: blood type, allergies, contact, and the log entry for this opening](docs/screenshots/break-glass.jpg) |
-| **How it works** | **The ledger (admin)** |
-| ![The walkthrough's hiding step: one real pixel and its four neighbours carrying one bit](docs/screenshots/how-it-works.jpg) | ![The audit log drawn as a hash chain with the signed tree head checked in the browser](docs/screenshots/ledger.jpg) |
+| **The ledger (admin)** | |
+| ![The audit log drawn as a hash chain with the signed tree head checked in the browser](docs/screenshots/ledger.jpg) | |
 
-## How it works
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -56,7 +55,7 @@ flowchart LR
 What protects what, and what I fixed during the review:
 
 - **Encryption**: AES-256-GCM everywhere (authenticated), random nonces, one key per record, per loan and per card. Ciphertexts are bound to their context with associated data.
-- **Key derivation**: passwords use scrypt (N = 2^15, r = 8, p = 1) with constant-time comparison and a dummy hash for unknown emails; loan keys use HKDF-SHA256; card codes have 100 bits of entropy *and* go through scrypt.
+- **Key derivation**: passwords use scrypt (N = 2^15, r = 8, p = 1) with constant-time comparison and a dummy hash for unknown emails; loan keys use HKDF-SHA256; card codes have 100 bits of entropy and go through scrypt.
 - **Access control**: patients see their own data, doctors only consenting patients or a record on loan, admins no clinical data (separation of duties). Refusals return 404 and are logged.
 - **Review fixes** (each has a test): record titles were stored in plaintext and are now sealed; ids are validated as UUIDs (a crafted record id could plant "denied" entries in another patient's activity feed); malformed JSON returns 400 instead of 500; demo password hashing now uses the server's scrypt cost; PSNR and SSIM for 16-bit images used the container's 65535 peak and overstated quality by over 30 dB; ended loan keys are zeroed on disk (SQLite `secure_delete`); vulnerable dependencies upgraded (`npm audit`: 0).
 - **Headers**: strict CSP (self only, no inline script), HSTS, nosniff, no-referrer, COOP, Permissions-Policy; on the server also signed http-only SameSite=Strict session cookies, a CSRF header check and rate limits (login and break-glass at 10/min).
