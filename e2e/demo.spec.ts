@@ -9,7 +9,7 @@ async function signInAs(page: Page, name: string) {
 async function signOut(page: Page) {
   await page.getByRole("button", { name: /^Account:/ }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open a wallet as" })).toBeVisible();
 }
 
 test("a doctor opens a record: decrypted, verified, and tampering is caught", async ({ page }) => {
@@ -128,26 +128,15 @@ test("a patient issues a new emergency card and its one-time code opens it", asy
   await page.getByRole("button", { name: "Replace" }).click();
   await page.getByRole("button", { name: /Issue a new card/ }).click();
   await expect(page.getByText("This code is shown once.")).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Try it as a paramedic" }).click();
+  await page.getByRole("button", { name: "Open as a paramedic" }).click();
   await page.getByRole("button", { name: "Break the glass" }).click();
   await expect(page.getByText(/Logged as entry #\d+/)).toBeVisible({ timeout: 30_000 });
 });
 
-test("the first screen pitches the idea, and 'How it works' follows a real record to a bit-exact recovery", async ({ page }) => {
+test("the first screen shows a real X-ray with a record sealed in it, credited to its source", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Your scan is the envelope/ })).toBeVisible();
   await expect(page.getByText(/An encrypted record \(\d+ bytes\) is hidden in this X-ray/)).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: /How it works/ }).click();
-  const how = page.getByRole("dialog", { name: "How MedVault works" });
-  await expect(how.getByRole("button", { name: /Next: Encrypt/ })).toBeVisible({ timeout: 30_000 });
-  await how.getByRole("button", { name: /Next: Encrypt/ }).click();
-  await how.getByRole("button", { name: "Change one bit of the ciphertext" }).click();
-  await expect(how.getByText(/Integrity check failed/)).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await expect(how.getByText(/guess ⌊/)).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await how.getByRole("button", { name: "Push the expiry back by 1 ms" }).click();
-  await expect(how.getByText(/Won't open/)).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await expect(how.getByText(/0 of 1,000,000 pixels differ/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "CC BY 3.0" })).toHaveAttribute("href", "https://creativecommons.org/licenses/by/3.0/");
+  await expect(page.getByText("How it works")).toHaveCount(0);
 });
