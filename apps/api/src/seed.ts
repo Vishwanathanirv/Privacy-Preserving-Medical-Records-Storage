@@ -3,7 +3,7 @@ import { lend, sealDetail } from "./service";
 import type { SeedStore } from "./types";
 import type { Vault } from "./vault";
 
-/** Demo password shown on the sign-in page. Set DEMO_SEED=off in production. */
+/** Demo password for development and the in-browser demo. Production seeds only with DEMO_SEED=on. */
 export const DEMO_PASSWORD = "medvault-demo";
 
 /** The real, openly licensed sample scans (samples/README.md), as PNG bytes. Missing ones fall back to a synthetic phantom. */
