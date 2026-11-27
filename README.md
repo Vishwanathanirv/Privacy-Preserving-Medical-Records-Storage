@@ -88,13 +88,13 @@ npm run dev                     # API on 8080, app with hot reload on 5175
 npm run build:demo              # the static, in-browser demo (what Vercel serves)
 ```
 
-Sign in with a demo account on the first screen (password `medvault-demo`). In development, keys are generated in `./data`; in production set them explicitly:
+In development an empty database is seeded with demo accounts (password `medvault-demo`); production never seeds unless `DEMO_SEED=on`. In development, keys are generated in `./data`; in production set them explicitly:
 
 ```bash
 docker build -f deploy/Dockerfile -t medvault .
 docker run -p 8080:8080 -v medvault:/data \
   -e MASTER_KEY=$(openssl rand -base64 32) -e SESSION_SECRET=$(openssl rand -base64 32) \
-  -e LOG_SIGNING_KEY=$(openssl rand -base64 32) -e DEMO_SEED=off medvault
+  -e LOG_SIGNING_KEY=$(openssl rand -base64 32) medvault
 ```
 
 The live demo is the same app with the same API service compiled into the page, over an in-memory database saved to `localStorage`, so each visitor gets a private sandbox. `vercel.json` builds it with no environment variables.

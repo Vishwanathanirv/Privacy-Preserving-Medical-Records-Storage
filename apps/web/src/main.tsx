@@ -185,7 +185,7 @@ function Shell() {
         <Palette commands={commands} />
       </>
     );
-  const how = loc.pathname === "/proof";
+  const onProof = loc.pathname === "/proof";
 
   let home: ReactNode;
   if (user.role === "doctor")
@@ -228,7 +228,7 @@ function Shell() {
         <Route path="/proof" element={<ProofJump />} />
         <Route path="/" element={null} />
         {user.role === "doctor" && <Route path="/patients/:id" element={null} />}
-        <Route path="*" element={how ? null : <Navigate to="/" replace />} />
+        <Route path="*" element={onProof ? null : <Navigate to="/" replace />} />
       </Routes>
       <Palette commands={commands} />
     </div>
