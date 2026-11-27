@@ -41,6 +41,14 @@ function sampleScans(): SeedScans {
   return out;
 }
 
+/** Demo users are opt-in: on in development, off in production unless DEMO_SEED=on. */
+function demoSeedEnabled(): boolean {
+  const v = process.env.DEMO_SEED;
+  if (v === "on") return true;
+  if (v === "off") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
 export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyInstance; db: Db }> {
   const db = new Db(opts.dbFile);
   const keyDir = opts.keyDir ?? process.env.KEY_DIR ?? "./data";
@@ -50,7 +58,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<{ app: FastifyIns
   const vault = new Vault(db, kek);
   const logKey = loadKey("LOG_SIGNING_KEY", memory ? ":memory:" : join(keyDir, "log.key"));
   const tlog = new TransparencyLog(() => db.auditAll(), logKey);
-  if ((opts.seed ?? process.env.DEMO_SEED !== "off") && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD), sampleScans());
+  if ((opts.seed ?? demoSeedEnabled()) && db.countUsers() === 0) seedDemo(db, vault, await hashPassword(DEMO_PASSWORD), sampleScans());
 
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: true, bodyLimit: 256 * 1024 });
   await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "blob:"], fontSrc: ["'self'", "data:"], workerSrc: ["'self'"], connectSrc: ["'self'"] } } });

@@ -27,7 +27,8 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [own, setOwn] = useState(false);
+  // Outside the in-browser demo there are no fictional wallets: the real sign-in form comes first.
+  const [own, setOwn] = useState(!DEMO);
 
   async function go(e: string, p: string, to = "/") {
     setBusy(true);
@@ -43,10 +44,18 @@ export function Login() {
   }
 
   async function tryIt(t: (typeof TRY)[number]) {
-    if (t.k === "sos") {
-      const link = DEMO ? await import("../demo/server").then(({ demo }) => demo.sosLink()) : null;
-      nav(link ?? "/sos");
-    } else await go(t.who, PASSWORD, t.to);
+    if (t.k !== "sos") return go(t.who, PASSWORD, t.to);
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { demo } = await import("../demo/server");
+      nav((await demo.sosLink()) ?? "/sos");
+    } catch {
+      setError("Could not open the emergency card. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -73,6 +82,7 @@ export function Login() {
         <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <Lens />
         </div>
+        {DEMO && (
         <section aria-label="Start with" className="lg:col-start-1 lg:row-span-2 lg:row-start-2">
           <h2 className="eyebrow">Start with</h2>
           <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
@@ -92,13 +102,15 @@ export function Login() {
             ))}
           </ul>
         </section>
+        )}
 
         <div className="lg:col-start-2 lg:row-start-3">
           <section className="rounded-[24px] border border-line bg-panel p-5 sm:p-6" aria-labelledby="h-signin">
             <h2 id="h-signin" className="text-[1.3rem] font-bold tracking-tight">
-              Open a wallet as
+              {DEMO ? "Open a wallet as" : "Sign in"}
             </h2>
-            <p className="mt-1 text-sm text-muted">One click, no password. Everyone here is fictional; the scans are real.</p>
+            {DEMO && <p className="mt-1 text-sm text-muted">One click, no password. Everyone here is fictional; the scans are real.</p>}
+            {DEMO && (
             <ul className="mt-4 grid gap-2 sm:grid-cols-2">
               {PEOPLE.map((d) => (
                 <li key={d.email}>
@@ -113,6 +125,7 @@ export function Login() {
                 </li>
               ))}
             </ul>
+            )}
             {!own ? (
               <button className="mt-4 text-sm text-faint underline-offset-4 hover:text-ink hover:underline" onClick={() => setOwn(true)}>
                 Use an email and password instead
@@ -130,12 +143,18 @@ export function Login() {
                 <button className="btn btn-accent h-[2.8rem]" disabled={busy}>
                   {busy ? "Signing in…" : "Sign in"}
                 </button>
-                <p className="text-xs text-faint sm:col-span-3">
-                  Demo password: <code className="font-mono">{PASSWORD}</code>
-                </p>
+                {DEMO && (
+                  <p className="text-xs text-faint sm:col-span-3">
+                    Demo password: <code className="font-mono">{PASSWORD}</code>
+                  </p>
+                )}
               </form>
             )}
-            {error && <p className="mt-3 text-sm text-coral">{error}</p>}
+            {error && (
+              <p role="alert" className="mt-3 text-sm text-coral">
+                {error}
+              </p>
+            )}
           </section>
         </div>
       </main>
