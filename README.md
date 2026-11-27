@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/kon.svg" width="100%" alt="MedVault: Your scan is the envelope. A plush lion in a black robe, headphones and sunglasses.">
+</p>
+
 # MedVault · Your scan is the envelope
 
 ![MedVault's first screen: the headline "Your scan is the envelope." next to a real chest X-ray, with a lens showing the pixels that hide an encrypted record](docs/screenshots/landing.jpg)
