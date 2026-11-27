@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/kon.svg" width="100%" alt="MedVault. A plush orange lion in headphones and sunglasses panics, changes into a robed swordsman and slashes the hollows breaking out of the sky.">
-</p>
-
 # MedVault · Your scan is the envelope
 
 ![MedVault's first screen: the headline "Your scan is the envelope." next to a real chest X-ray, with a lens showing the pixels that hide an encrypted record](docs/screenshots/landing.jpg)
